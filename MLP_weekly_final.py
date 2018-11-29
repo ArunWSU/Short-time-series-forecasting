@@ -61,23 +61,25 @@ History_output_inv=scaler_history.inverse_transform(History_output.reshape(-1,1)
 MLP_History_output_inv=scaler_history.inverse_transform(MLP_History_output.reshape(-1,1))
 
 # Weeks
-Output=np.zeros((52,5))
-Output[0][0]=(mean_squared_error(History_output,MLP_History_output))
-Output[0][1]=(mean_absolute_error(History_output,MLP_History_output))
-Output[0][2]=(mean_squared_error(History_output_inv,MLP_History_output_inv))
-Output[0][3]=(mean_absolute_error(History_output_inv,MLP_History_output_inv))
-Output[0][4]=(mape(History_output_inv,MLP_History_output_inv))
+error_metrics=np.zeros((52,5))
+error_metrics[0][0]=(mean_squared_error(History_output,MLP_History_output))
+error_metrics[0][1]=(mean_absolute_error(History_output,MLP_History_output))
+error_metrics[0][2]=(mean_squared_error(History_output_inv,MLP_History_output_inv))
+error_metrics[0][3]=(mean_absolute_error(History_output_inv,MLP_History_output_inv))
+error_metrics[0][4]=(mape(History_output_inv,MLP_History_output_inv))
 
 # History=pd.Series(np.ones((len(Week1),))) Input all ones
 dates=pd.date_range(start='2017-01-09',end='2017-12-31')
-n=dates.size
+no_of_dates=dates.size
 B=[]
 Start_list=[0]
 y=0
-w=int(n/7)
+w=int(no_of_dates/7)
 StartDate=pd.Series('2017-01-02')
 EndDate=pd.Series('2017-01-08')
-retrain=1
+retrain=0
+Forecast=Annual['2017-01-09':'2017-12-31'].mw
+Lastwindow=[]
 # Time stamp object to convert to date and then string str function
 for x in range(0,w,1):
     StartIndex=str(dates[y].date())
@@ -101,62 +103,79 @@ for x in range(0,w,1):
 #        EndDate=EndDate.append(pd.Series(EndIndex),ignore_index=True)
 
     # Weekly Data
-    weekly=Annual[StartIndex:EndIndex]
-    weekly_data=weekly['mw']
+    weekly_data=Annual[StartIndex:EndIndex].mw
     weekly_data.index=np.arange(0,len(weekly_data),1)
-    
-    # Reshaping and scaler fit transformation
-    weekly_data=weekly_data.values.reshape(-1,1)
     scaler_forecast=MinMaxScaler(feature_range=(0,1))
-    weekly_data_norm=scaler_forecast.fit_transform(weekly_data)
-    Forecast_input,Forecast_output_norm=data_preparation(weekly_data_norm,window_size)
-    Forecast_output_actual=scaler_forecast.inverse_transform(Forecast_output_norm.reshape(-1,1))
+    forecast_output_actual=weekly_data.values
+    forecast_output_norm=scaler_forecast.fit_transform(forecast_output_actual.reshape(-1,1))
+        # o,forecast_output_norm=data_preparation(forecast_output_norm,window_size)
+    
+    Forecast_output_actual=scaler_forecast.inverse_transform(forecast_output_norm.reshape(-1,1))
+    if(x==0):
+        forecast_output_actual=forecast_output_actual[window_size:]
+        forecast_output_norm_continous=forecast_output_norm
+        forecast_output_norm=forecast_output_norm[window_size:]
+        no_of_datapoints_in_week=forecast_output_norm.shape[0]
+    else:
+        forecast_output_norm_continous=np.concatenate([forecast_output_norm_continous,forecast_output_norm])  
+        no_of_datapoints_in_week=forecast_output_norm.shape[0]          
     if(retrain==1):
         scaler_hist=MinMaxScaler(feature_range=(0,1))
         history=Annual[StartDate[x]:EndDate[x]].mw
-        # history.index=np.arange(0,len(history),1)
+        history.index=np.arange(0,len(history),1)
         history_norm=scaler_hist.fit_transform(history.values.reshape(-1,1))
         history_input,history_output=data_preparation(history_norm,window_size)
         mlp.fit(history_input,history_output)
         
-    mlp_forecast_weekly_norm=np.zeros(Forecast_input.shape[0])
-    for i in range(0,weekly_data_norm.shape[0]-window_size,1):
-        previous_window=weekly_data_norm[i:i+window_size].reshape(-1,window_size)
-        mlp_forecast_weekly_norm[i]=mlp.predict(previous_window)
-
+    mlp_forecast_weekly_norm=np.zeros(forecast_output_norm.shape[0])
+    
+    for i in range(0,no_of_datapoints_in_week,1):  
+            previous_window=forecast_output_norm_continous[i:i+window_size].reshape(-1,window_size)
+            mlp_forecast_weekly_norm[i]=mlp.predict(previous_window) 
+                
+    forecast_output_norm_continous=forecast_output_norm[-window_size:].reshape(-1,1)    
     mlp_forecast_weekly_actual=scaler_forecast.inverse_transform(mlp_forecast_weekly_norm.reshape(-1,1))
     # calculate RMSE
-    Test_score=(mean_squared_error(Forecast_output_norm,mlp_forecast_weekly_norm))
-    Output[x+1][0]=Test_score
+    Test_score=(mean_squared_error(forecast_output_norm,mlp_forecast_weekly_norm))
+    error_metrics[x+1][0]=Test_score
 
     # calculate MAE
-    Test_score1=(mean_absolute_error(Forecast_output_norm,mlp_forecast_weekly_norm))
-    Output[x+1][1]=Test_score1
+    Test_score1=(mean_absolute_error(forecast_output_norm,mlp_forecast_weekly_norm))
+    error_metrics[x+1][1]=Test_score1
 
     # Calculate RMSe
-    Test_score=(mean_squared_error(Forecast_output_actual,mlp_forecast_weekly_actual))
-    Output[x+1][2]=Test_score
+    Test_score=(mean_squared_error(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][2]=Test_score
 
     # calculate MAE
-    Test_score1=(mean_absolute_error(Forecast_output_actual,mlp_forecast_weekly_actual))
-    Output[x+1][3]=Test_score1
+    Test_score1=(mean_absolute_error(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][3]=Test_score1
 
     # Calculate MAPE
-    Test_score1=(mape(Forecast_output_actual,mlp_forecast_weekly_actual))
-    Output[x+1][4]=Test_score1
+    Test_score1=(mape(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][4]=Test_score1
     B.append(mlp_forecast_weekly_actual)
 
     if(x==0): # USE CLASS DEFINITION
-        Actual_Forecast=Forecast_output_actual
-        MLP_Forecast=mlp_forecast_weekly_actual
+        Actual_norm=forecast_output_norm.reshape(-1,1)
+        Actual_forecast=forecast_output_actual.reshape(-1,1)
+        MLP_forecast_norm=mlp_forecast_weekly_norm.reshape(-1,1)
+        MLP_forecast=mlp_forecast_weekly_actual.reshape(-1,1)
     else:
-        Actual_Forecast=np.concatenate([Actual_Forecast,Forecast_output_actual])
-        MLP_Forecast=np.concatenate([MLP_Forecast,mlp_forecast_weekly_actual])
+        Actual_norm=np.concatenate([Actual_norm,forecast_output_norm.reshape(-1,1)])
+        Actual_forecast=np.concatenate([Actual_forecast,Forecast_output_actual.reshape(-1,1)])
+        MLP_forecast_norm=np.concatenate([MLP_forecast_norm,mlp_forecast_weekly_norm.reshape(-1,1)])
+        MLP_forecast=np.concatenate([MLP_forecast,mlp_forecast_weekly_actual.reshape(-1,1)])
 
-Outdata=pd.DataFrame(data=Output,columns=['RMSE_Scale','MAE_Scale','RMSE_Actual','MAE_Actual','MAPE'])
-Outdata['StartDate']=StartDate
-Outdata['EndDate']=EndDate
-# Outdata.to_excel('Annual.xlsx','Sheet1')
+filename='Annual1.xlsx'
+different_regression_metrics=pd.DataFrame(data=error_metrics,columns=['RMSE_Scale','MAE_Scale','RMSE_Actual','MAE_Actual','MAPE'])
+different_regression_metrics['StartDate']=StartDate
+different_regression_metrics['EndDate']=EndDate
+# different_regression_metrics.to_excel('Annual.xlsx','Sheet1')
+
+complete_forecast_output=np.stack((Actual_norm,Actual_forecast,MLP_forecast_norm,MLP_forecast),axis=1).reshape(-1,4)
+complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual Norm','Actual','MLP norm','MLP'])
+#total_data.to_excel(filename,'Sheet2')
 '''
 # plotting in matplotlib
 Scale_Xh=np.arange(1,len(History_output)+1,1)
