@@ -23,15 +23,12 @@ def data_Preparation(X,nlags):
             Y_t.append(X[i+nlags])
     return np.array(X_t),np.array(Y_t)
 
-def MAPE(X,Y):
+def mape(X,Y):
     X1,Y1=np.array(X),np.array(Y)
     APE=abs((X1-Y1)/X1)
-    MAPE=np.mean(APE)*100
-    return MAPE
+    mape_calc=np.mean(APE)*100
+    return mape_calc
 
-def MAPE1(y_true, y_pred): 
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 '''
 History=pd.read_csv("History_noise.csv",squeeze=True)
 Forecast=pd.read_csv("Forecast_validation_noise.csv",squeeze=True)
@@ -53,9 +50,9 @@ History.index=np.arange(0,len(History),1)
 # Forecast vector
 Week2=Annual['2017-01-10':'2017-12-31'] # '2017-01-10':'2017-12-31' Annual
 Forecast=Week2['mw']
-Forecast['2017-01-12 07:00:00']= Mean+20*Stdev
-Forecast['2017-01-12 14:00:00']= Mean+7*Stdev
-Forecast['2017-01-12 22:00:00']= Mean+4*Stdev
+Forecast.loc['2017-01-12 07:00:00']= Mean+20*Stdev
+Forecast.loc['2017-01-12 14:00:00']= Mean+7*Stdev
+Forecast.loc['2017-01-12 22:00:00']= Mean+4*Stdev
 #Forecast['2017-01-12']=0 # case when it is zero
 #Forecast[24:30]=0
 Forecast.index=np.arange(0,len(Forecast),1)
@@ -71,7 +68,7 @@ scaler=MinMaxScaler(feature_range=(0,1))
 Forecast_norm=scaler.fit_transform(Forecast)
 
 # Choice of window size for window based forecasting
-Window_size=1
+Window_size=5
 History_input,History_output=data_Preparation(History_norm,Window_size)
 Forecast_input,Forecast_output=data_Preparation(Forecast_norm,Window_size)
 
@@ -106,7 +103,9 @@ MLP_History_output_inv=scaler1.inverse_transform(MLP_History_output)
 
 Forecast_output_inv=scaler.inverse_transform(Forecast_output)
 MLP_Forecast_output_inv=scaler.inverse_transform(MLP_Forecast_output)
+History=History.reshape(-1)
 
+'''
 # plotting in matplotlib
 Scale_Xh=np.arange(1,len(History_output)+1,1)
 fig=plt.figure()
@@ -129,9 +128,9 @@ plt.title('Testing Set')
 plt.legend()
 plt.show()
 
-History=History.reshape(-1)
 
-'''
+
+
 fig=plt.figure()
 Scale_Xh=np.arange(1,len(Forecast_output)+1,1)
 plt.scatter(Scale_Xh,Forecast_output_inv,color='gray',marker="v",label='Actual load')
@@ -140,60 +139,66 @@ plt.xlabel('Time(Hours)', fontsize=18)
 plt.ylabel('Load(MW)', fontsize=18)
 plt.legend()
 plt.show()
-'''
 
-'''
 # https://www.propharmagroup.com/blog/understanding-statistical-intervals-part-2-prediction-intervals/
 Alpha=0.05
 Delta=Alpha/2*
 '''
-#Output=[0]*15
-Output=np.zeros((10,10))
-# calculate RMSE
-Train_score=(mean_squared_error(History_output,MLP_History_output))
-Test_score=(mean_squared_error(Forecast_output,MLP_Forecast_output))
-print('Training RMSE is %f'%(Train_score))
-print('Testing RMSE is %f'%(Test_score))
-Output[0][0]=Train_score
-Output[0][1]=Test_score
+# Weeks
+error_metrics=np.zeros((52,5))
+error_metrics[0][0]=(mean_squared_error(History_output,MLP_History_output))
+error_metrics[0][1]=(mean_absolute_error(History_output,MLP_History_output))
+error_metrics[0][2]=(mean_squared_error(History_output_inv,MLP_History_output_inv))
+error_metrics[0][3]=(mean_absolute_error(History_output_inv,MLP_History_output_inv))
+error_metrics[0][4]=(mape(History_output_inv,MLP_History_output_inv))
 
-# calculate MAE
-Train_score1=(mean_absolute_error(History_output,MLP_History_output))
-Test_score1=(mean_absolute_error(Forecast_output,MLP_Forecast_output))
-print('Training MAE is %f'%(Train_score1))
-print('Testing MAE is %f'%(Test_score1))
-Output[1][0]=Train_score1
-Output[1][1]=Test_score1
+no_of_datapoints=Week2.shape[0]
+oneweek_datapoints=7*24
+no_of_weeks=int(no_of_datapoints/oneweek_datapoints)
+index=0
 
-# Calculate RMSe
-Train_score=(mean_squared_error(History_output_inv,MLP_History_output_inv))
-Test_score=(mean_squared_error(Forecast_output_inv,MLP_Forecast_output_inv))
-print('Training RMSE is %f'%(Train_score))
-print('Testing RMSE is %f'%(Test_score))
-Output[2][0]=Train_score
-Output[2][1]=Test_score
+for x in range(0,no_of_weeks,1):
+    forecast_output_norm=Forecast_output[index:index+no_of_datapoints]
+    mlp_forecast_weekly_norm=MLP_Forecast_output[index:index+no_of_datapoints] 
+    forecast_output_actual=Forecast_output_inv[index:index+no_of_datapoints]
+    mlp_forecast_weekly_actual=MLP_Forecast_output_inv[index:index+no_of_datapoints]
+    index=index+oneweek_datapoints
+    
+    # calculate RMSE
+    Test_score=(mean_squared_error(forecast_output_norm,mlp_forecast_weekly_norm))
+    error_metrics[x+1][0]=Test_score
 
-# calculate MAE
-Train_score1=(mean_absolute_error(History_output_inv,MLP_History_output_inv))
-Test_score1=(mean_absolute_error(Forecast_output_inv,MLP_Forecast_output_inv))
-print('Training MAE is %f'%(Train_score1))
-print('Testing MAE is %f'%(Test_score1))
-Output[3][0]=Train_score1
-Output[3][1]=Test_score1
+    # calculate MAE
+    Test_score1=(mean_absolute_error(forecast_output_norm,mlp_forecast_weekly_norm))
+    error_metrics[x+1][1]=Test_score1
 
-# Calculate MAPE
-Train_score1=(MAPE(History_output_inv,MLP_History_output_inv))
-Test_score1=(MAPE(Forecast_output_inv,MLP_Forecast_output_inv))
-print('Training MAPE is %f'%(Train_score1))
-print('Testing MAPE is %f'%(Test_score1))
-Output[4][0]=Train_score1
-Output[4][1]=Test_score1
+    # Calculate RMSe
+    Test_score=(mean_squared_error(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][2]=Test_score
+
+    # calculate MAE
+    Test_score1=(mean_absolute_error(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][3]=Test_score1
+
+    # Calculate mape
+    Test_score1=(mape(forecast_output_actual,mlp_forecast_weekly_actual))
+    error_metrics[x+1][4]=Test_score1
+    
+filename='Annual1.xlsx'
+different_regression_metrics=pd.DataFrame(data=error_metrics,columns=['RMSE_Scale','MAE_Scale','RMSE_Actual','MAE_Actual','MAPE'])
+#different_regression_metrics.to_excel(filename,'Sheet1')
+
+filename='Annual1.xlsx'
+complete_forecast_output=np.stack((Forecast_output,Forecast_output_inv,MLP_Forecast_output,MLP_Forecast_output_inv),axis=1).reshape(-1,4)
+complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual Norm','Actual','MLP norm','MLP'])
+#complete_forecast_data.to_excel(filename,'Sheet2')
 
 Output1=np.zeros((2,40))
 Output1[0]=Forecast_output_inv[60:100].reshape(-1)
 Output1[1]=MLP_Forecast_output_inv[60:100].reshape(-1)
 Output1=Output1.transpose()
 
+'''
 fig=plt.figure()
 Scale_Xh=np.arange(1,Output1.shape[0]+1,1)
 plt.plot(Scale_Xh,Output1[:,0],color='gray',label='Actual load',marker="v")
@@ -208,7 +213,7 @@ filename='Window1.xlsx'
 complete_forecast_output=np.stack((Forecast_output,Forecast_output_inv,MLP_Forecast_output,MLP_Forecast_output_inv),axis=1)
 complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual Norm','Actual','MLP norm','MLP'])
 complete_forecast_data.to_excel(filename,'Sheet2')
-'''
+
 # Residual Check for fit
 Residuals=History_input_inv-MLP_History_output_inv
 Residuals=Forecast_output_inv-MLP_Forecast_output_inv
@@ -231,8 +236,7 @@ plt.show()
 
 sns.kdeplot(Residuals)
 Acorr=acorr_ljungbox(Residuals)
-'''
-'''
+
 Meanse=[0]*10
 for i in range(1,10):
     Meanse[i]=1

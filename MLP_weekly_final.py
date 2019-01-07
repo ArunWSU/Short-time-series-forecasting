@@ -11,6 +11,7 @@ from scipy.stats import probplot
 from statsmodels.stats.diagnostic import acorr_ljungbox
 import seaborn as sns
 from scipy.stats import norm
+import statistics
 
 # Fixing the random number for neural net
 np.random.seed(1)
@@ -28,8 +29,8 @@ def data_preparation(X,nlags):
 def mape(X,Y):
     X1,Y1=np.array(X),np.array(Y)
     APE=abs((X1-Y1)/X1)
-    MAPE=np.mean(APE)*100
-    return MAPE
+    mape_calc=np.mean(APE)*100
+    return mape_calc
 
 
 # History vector
@@ -39,6 +40,12 @@ Week1=Annual['2017-01-02':'2017-01-08']
 History=Week1['mw']
 History.index=np.arange(0,len(History),1)
 History=History.values.reshape(-1,1)
+
+annual_data_mean=statistics.mean(Annual_data)
+annual_data_sd=statistics.stdev(Annual_data)
+upper_threshold=annual_data_mean+3*annual_data_sd
+lower_threshold=annual_data_mean-3*annual_data_sd
+
 
 scaler_history=MinMaxScaler(feature_range=(0,1))
 History_norm=scaler_history.fit_transform(History)
@@ -79,7 +86,12 @@ StartDate=pd.Series('2017-01-02')
 EndDate=pd.Series('2017-01-08')
 retrain=0
 Forecast=Annual['2017-01-09':'2017-12-31'].mw
+Forecast['2017-01-09']=0
 Lastwindow=[]
+ADAM=1
+mlp_forecast_weekly_actual_individual=np.zeros(Forecast.shape[0]).reshape(-1,1)
+forecast1_output=np.zeros(Forecast.shape[0]).reshape(-1,1)
+
 # Time stamp object to convert to date and then string str function
 for x in range(0,w,1):
     StartIndex=str(dates[y].date())
@@ -107,6 +119,7 @@ for x in range(0,w,1):
     weekly_data.index=np.arange(0,len(weekly_data),1)
     scaler_forecast=MinMaxScaler(feature_range=(0,1))
     forecast_output_actual=weekly_data.values
+    min_weekly_forecast=min(forecast_output_actual)
     forecast_output_norm=scaler_forecast.fit_transform(forecast_output_actual.reshape(-1,1))
         # o,forecast_output_norm=data_preparation(forecast_output_norm,window_size)
     
@@ -132,7 +145,13 @@ for x in range(0,w,1):
     for i in range(0,no_of_datapoints_in_week,1):  
             previous_window=forecast_output_norm_continous[i:i+window_size].reshape(-1,window_size)
             mlp_forecast_weekly_norm[i]=mlp.predict(previous_window) 
-                
+            #mlp_forecast_weekly_actual_individual[i]=scaler_forecast.inverse_transform(mlp_forecast_weekly_norm[i]).reshape(1,-1)
+            if(ADAM==1):
+                if((lower_threshold < forecast_output_actual[i]) and (forecast_output_actual[i] < upper_threshold)):
+                    forecast1_output[i]=forecast_output_actual[i]
+                else:
+                    forecast1_output[i]=mlp_forecast_weekly_actual_individual[i]
+                    
     forecast_output_norm_continous=forecast_output_norm[-window_size:].reshape(-1,1)    
     mlp_forecast_weekly_actual=scaler_forecast.inverse_transform(mlp_forecast_weekly_norm.reshape(-1,1))
     # calculate RMSE
@@ -143,7 +162,7 @@ for x in range(0,w,1):
     Test_score1=(mean_absolute_error(forecast_output_norm,mlp_forecast_weekly_norm))
     error_metrics[x+1][1]=Test_score1
 
-    # Calculate RMSe
+    # Calculate RMSE
     Test_score=(mean_squared_error(forecast_output_actual,mlp_forecast_weekly_actual))
     error_metrics[x+1][2]=Test_score
 
@@ -171,11 +190,12 @@ filename='Annual1.xlsx'
 different_regression_metrics=pd.DataFrame(data=error_metrics,columns=['RMSE_Scale','MAE_Scale','RMSE_Actual','MAE_Actual','MAPE'])
 different_regression_metrics['StartDate']=StartDate
 different_regression_metrics['EndDate']=EndDate
-# different_regression_metrics.to_excel('Annual.xlsx','Sheet1')
+different_regression_metrics.to_excel(filename,'Sheet1')
 
+filename='Annual1.xlsx'
 complete_forecast_output=np.stack((Actual_norm,Actual_forecast,MLP_forecast_norm,MLP_forecast),axis=1).reshape(-1,4)
 complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual Norm','Actual','MLP norm','MLP'])
-#total_data.to_excel(filename,'Sheet2')
+complete_forecast_data.to_excel(filename,'Sheet2')
 '''
 # plotting in matplotlib
 Scale_Xh=np.arange(1,len(History_output)+1,1)
