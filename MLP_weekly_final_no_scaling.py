@@ -25,27 +25,9 @@ def data_preparation(X,nlags):
             Y_t.append(X[i+nlags])
     return np.array(X_t).reshape(-1,window_size),np.array(Y_t).ravel()
 
-def mape(X,Y):
-    X1,Y1=np.array(X),np.array(Y)
-    APE=abs((X1-Y1)/X1)
-    mape_calc=np.mean(APE)*100
-    return mape_calc
+def error_compute(X,Y):
+    return np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
 
-def mean_abs_dev(X,Y):
-    X1,Y1=np.array(X),np.array(Y)
-    abs_error=abs(X1-Y1)
-    mad=np.mean(abs_error)
-    return mad
-
-def mean_square_dev(X,Y):
-    # Simplified one line codc
-     return np.mean(np.power(abs(np.array(X)-np.array(Y)),2))
-    # Multi-step assignment
-#    X1,Y1=np.array(X),np.array(Y)
-#    abs_error=np.power(abs(X1-Y1),2)
-#    mse=np.mean(abs_error)
-#    return mse
-     
 class ModelPerformance:
     # To view the values used in error computation
     actual_list,forecast_list=[],[]
@@ -57,7 +39,7 @@ class ModelPerformance:
         if(performance_window_size==1):
             self.actual_values=forecast_output_actual[i] 
             self.forecast_values=mlp_forecast_actual[i]
-            self.error_compute(i)
+            self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=error_compute(self.actual_values,self.forecast_values)
         else:
             end_index=i+1
             if(end_index>=performance_window_size):
@@ -65,19 +47,38 @@ class ModelPerformance:
              self.actual_list.append(self.actual_values)
              self.forecast_values=mlp_forecast_actual[end_index-performance_window_size:end_index] 
              self.forecast_list.append(self.forecast_values)
-             self.error_compute(i)
-    
-    def error_compute(self,i):
-        X=self.actual_values
-        Y=self.forecast_values
-        self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
-        
-#    def error_compute(self,forecast_output_actual,mlp_forecast_actual,i,performance_window_size):
-#        X=forecast_output_actual[i] 
-#        Y=mlp_forecast_actual[i]
-#        i+=1
-#        self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
+             self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=error_compute(self.actual_values,self.forecast_values)
 
+class AnomalyDetect:
+    select=1
+    threshold_violations=[]
+    
+    def __init__(self,forecast_size):
+        AnomalyDetect.threshold_violations=np.zeros((forecast_size,1)) 
+        
+    def check_anomalies(GaussianThresholds,select,current_value,i):
+        if(select==1):
+            GaussianThresholds.gaussian_check(current_value,i)
+        else:
+            raise Exception('Not a valid selection!')
+
+class GaussianThresholds(AnomalyDetect):
+    def __init__(self,annual_data1,forecast_size):
+         AnomalyDetect.__init__(self,forecast_size)
+         GaussianThresholds.annual_data=annual_data1
+         annual_data_mean=statistics.mean(annual_data)
+         annual_data_sd=statistics.stdev(annual_data)
+         self.upper_threshold=annual_data_mean+3*annual_data_sd
+         self.lower_threshold=annual_data_mean-3*annual_data_sd
+     
+    def gaussian_check(GaussianThresholds,current_value,i): 
+      if((GaussianThresholds.lower_threshold < current_value) and (current_value < GaussianThresholds.upper_threshold)):
+          GaussianThresholds.threshold_violations[i]=0
+      else:
+          GaussianThresholds.threshold_violations[i]=1
+    
+     
+    
 # Reading and creating the history vector
 Annual=pd.read_csv("Annual_load_profile_PJM.csv",header=0,index_col=0,parse_dates=True)
 Week1=Annual['2017-01-02':'2017-01-08']
@@ -99,11 +100,6 @@ scale=np.arange(0,normalized_values.shape[0],1)
 plt.plot(scale,normalized_values)
 plt.show()
 '''
-# Calculate Gaussian thresholds for normal distribution
-annual_data_mean=statistics.mean(annual_data)
-annual_data_sd=statistics.stdev(annual_data)
-upper_threshold=annual_data_mean+3*annual_data_sd # 18089 small
-lower_threshold=annual_data_mean-3*annual_data_sd # 18071 upper and 4038.45 lower Mean 11055 Sd 2338.84 2017 dataset
 
 
 '''
@@ -177,12 +173,6 @@ mlp=MLPRegressor(hidden_layer_sizes=(7,),activation='identity',solver='lbfgs',ra
 mlp.fit(history_input,history_output)
 mlp_history_output=mlp.predict(history_input)
 
-# Weeks
-error_metrics1=np.zeros((4,3))
-error_metrics1[0][0]=(mean_squared_error(history_output,mlp_history_output))
-error_metrics1[0][1]=(mean_absolute_error(history_output,mlp_history_output))
-error_metrics1[0][2]=(mape(history_output,mlp_history_output))
-
 '''
 # Visualize the training
 Scale_Xh=np.arange(1,len(history_output)+1,1)
@@ -222,21 +212,28 @@ adam_forecast_output=np.zeros(forecast.shape[0]).reshape(-1,1)
 adam_forecast_output[0:window_size]=forecast[0:window_size].reshape(-1,1).copy() 
 threshold_violations=mlp_forecast_actual.copy()
 
-model_mlp=ModelPerformance(forecast_output_actual.shape[0])
-performance_window_size=3
+model_mlp_obj=ModelPerformance(forecast_output_actual.shape[0])
+performance_window_size=1
+anomaly_detection_method=1
+
+annual_data_mean=statistics.mean(annual_data)
+annual_data_sd=statistics.stdev(annual_data)
+upper_threshold=annual_data_mean+3*annual_data_sd
+lower_threshold=annual_data_mean-3*annual_data_sd
 
 no_of_datapoints=forecast_output_actual.shape[0]
+gaus_obj=GaussianThresholds(annual_data,forecast_output_actual.shape[0]) 
 
 for i in range(0,no_of_datapoints,1):
      previous_window=adam_forecast_output[window_index:window_index+window_size].reshape(-1,window_size)
      mlp_forecast_actual[i]=mlp.predict(previous_window) 
-     if((lower_threshold < forecast_output_actual[i]) and (forecast_output_actual[i] < upper_threshold)):
+     gaus_obj.check_anomalies(anomaly_detection_method,forecast_output_actual[i],i)
+     if(gaus_obj.threshold_violations[i]==0):
              adam_forecast_output[window_index+window_size]=forecast_output_actual[i].copy()
-             model_mlp.rolling_window_error(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
-#             model_mlp.error_compute(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
+             model_mlp_obj.rolling_window_error(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
+#             model_mlp_obj.error_compute(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
      else:
-             adam_forecast_output[window_index+window_size]=mlp_forecast_actual[i].copy()
-             threshold_violations[i]=1
+         adam_forecast_output[window_index+window_size]=mlp_forecast_actual[i].copy()          
      window_index=window_index+1
 
 
@@ -248,17 +245,11 @@ no_of_dates=dates.shape[0]
 no_of_weeks=math.floor(no_of_dates/7) 
 
 # Writing outputs to Excel file
-#different_regression_metrics=pd.DataFrame(data=model_mlp.error_metrics,columns=['RMSE_Actual One datapoint', 'MAE_Actual','MAPE'])
+#different_regression_metrics=pd.DataFrame(data=model_mlp_obj.error_metrics,columns=['RMSE_Actual One datapoint', 'MAE_Actual','MAPE'])
 #filename='MLP_performance.xlsx'
 #writer=ExcelWriter(filename)
 #different_regression_metrics.to_excel(writer,'sheet1')
 #writer.save()
-
-
-# filename='Annual1.xlsx'
-#complete_forecast_output=np.stack((Actual_forecast1,MLP_forecast),axis=1).reshape(-1,2)
-#complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual','MLP'])
-#complete_forecast_data.to_excel(filename,'Sheet2')
 
 
 # Testing dataset
@@ -301,6 +292,12 @@ no_of_weeks=math.floor(no_of_dates/7)
 #
 ## Error for the whole of forecast
 #index=np.arange(19,36,1)
+# Weeks
+#complete_error_metrics=np.zeros((4,3))
+#complete_error_metrics[0][0]=(mean_squared_error(history_output,mlp_history_output))
+#complete_error_metrics[0][1]=(mean_absolute_error(history_output,mlp_history_output))
+#complete_error_metrics[0][2]=(mape(history_output,mlp_history_output))
+#if(case)
 #original_forecast=forecast_output_actual
 #forecast_output_actual=np.delete(forecast_output_actual,index)
 #mlp_forecast_actual=np.delete(mlp_forecast_actual,index)
@@ -313,4 +310,4 @@ mlp_forecast_zero_interval=adam_forecast_output[zero_start_index:zero_end_index]
 actual_val_zero_interval=actual_forecast[zero_start_index:zero_end_index]
 MSE_zero_time_instant=mean_squared_error(actual_val_zero_interval,mlp_forecast_zero_interval)
 MAE_zero_time_instant=mean_absolute_error(actual_val_zero_interval,mlp_forecast_zero_interval)
-MAPE_zero_time_instant=mape(actual_val_zero_interval,mlp_forecast_zero_interval)
+#MAPE_zero_time_instant=mape(actual_val_zero_interval,mlp_forecast_zero_interval)
