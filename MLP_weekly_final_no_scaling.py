@@ -9,11 +9,12 @@ from sklearn.metrics import mean_absolute_error
 from scipy.stats import probplot
 from statsmodels.stats.diagnostic import acorr_ljungbox
 import matplotlib.pyplot as plt
-import seaborn as sns
+from pandas import ExcelWriter
 from scipy.stats import norm
 
 # Fixing the random number for neural net
 np.random.seed(1)
+
 # Creates the input and output data for time series forecasting
 def data_preparation(X,nlags):
     X_t,Y_t=[],[]
@@ -24,23 +25,69 @@ def data_preparation(X,nlags):
             Y_t.append(X[i+nlags])
     return np.array(X_t).reshape(-1,window_size),np.array(Y_t).ravel()
 
-
 def mape(X,Y):
     X1,Y1=np.array(X),np.array(Y)
     APE=abs((X1-Y1)/X1)
     mape_calc=np.mean(APE)*100
     return mape_calc
 
+def mean_abs_dev(X,Y):
+    X1,Y1=np.array(X),np.array(Y)
+    abs_error=abs(X1-Y1)
+    mad=np.mean(abs_error)
+    return mad
 
-# History vector
+def mean_square_dev(X,Y):
+    # Simplified one line codc
+     return np.mean(np.power(abs(np.array(X)-np.array(Y)),2))
+    # Multi-step assignment
+#    X1,Y1=np.array(X),np.array(Y)
+#    abs_error=np.power(abs(X1-Y1),2)
+#    mse=np.mean(abs_error)
+#    return mse
+     
+class ModelPerformance:
+    # To view the values used in error computation
+    actual_list,forecast_list=[],[]
+    
+    def __init__(self,forecast_size):
+        ModelPerformance.error_metrics=np.zeros((forecast_size+3,3))
+    
+    def rolling_window_error(self,forecast_output_actual,mlp_forecast_actual,i,performance_window_size):
+        if(performance_window_size==1):
+            self.actual_values=forecast_output_actual[i] 
+            self.forecast_values=mlp_forecast_actual[i]
+            self.error_compute(i)
+        else:
+            end_index=i+1
+            if(end_index>=performance_window_size):
+             self.actual_values=forecast_output_actual[end_index-performance_window_size:end_index] 
+             self.actual_list.append(self.actual_values)
+             self.forecast_values=mlp_forecast_actual[end_index-performance_window_size:end_index] 
+             self.forecast_list.append(self.forecast_values)
+             self.error_compute(i)
+    
+    def error_compute(self,i):
+        X=self.actual_values
+        Y=self.forecast_values
+        self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
+        
+#    def error_compute(self,forecast_output_actual,mlp_forecast_actual,i,performance_window_size):
+#        X=forecast_output_actual[i] 
+#        Y=mlp_forecast_actual[i]
+#        i+=1
+#        self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
+
+# Reading and creating the history vector
 Annual=pd.read_csv("Annual_load_profile_PJM.csv",header=0,index_col=0,parse_dates=True)
 Week1=Annual['2017-01-02':'2017-01-08']
-History=Week1['mw']
-History.index=np.arange(0,len(History),1)
-History=History.values.reshape(-1,1)
-
-# Checking for normal fit
+history=Week1['mw']
+history.index=np.arange(0,len(history),1)
+history=history.values.reshape(-1,1)
 annual_data=Annual['2017'].mw
+
+'''
+# Checking for normal fit
 plt.figure()
 annual_data.plot.hist()
 plt.title('Histogram of Annual data',fontsize=18)
@@ -51,191 +98,219 @@ normalized_values=norm.pdf(annual_data.values)
 scale=np.arange(0,normalized_values.shape[0],1)
 plt.plot(scale,normalized_values)
 plt.show()
-
-# Calculate thresholds
+'''
+# Calculate Gaussian thresholds for normal distribution
 annual_data_mean=statistics.mean(annual_data)
 annual_data_sd=statistics.stdev(annual_data)
 upper_threshold=annual_data_mean+3*annual_data_sd # 18089 small
-lower_threshold=annual_data_mean-3*annual_data_sd
+lower_threshold=annual_data_mean-3*annual_data_sd # 18071 upper and 4038.45 lower Mean 11055 Sd 2338.84 2017 dataset
 
 
+'''
+### FINDING MODEL PARAMETERS
+## CHOICE OF WINDOW SIZE FOR FORECASTING
+Metrics_output_window_select=np.zeros((20,6))
+
+for x in range(1,15):
+    # Input to MLP is of form No of samples, No of features
+    window_size=x
+    history_input,history_output=data_preparation(history,window_size)
+    forecast_input,forecast_output=data_preparation(forecast,window_size)
+    
+    #  Specify MLP regressor model
+    mlp=MLPRegressor(hidden_layer_sizes=(7,),activation='identity',solver='lbfgs',random_state=1)
+    mlp.fit(history_input,history_output)
+    
+    # Predict the outputs
+    mlp_history_output=mlp.predict(history_input).reshape(-1,1)
+    mlp_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
+    
+    # Calculate the error metrics
+    Metrics_output_window_select[x][0]=mean_squared_error(history_output,mlp_history_output)
+    Metrics_output_window_select[x][1]=mean_absolute_error(history_output,mlp_history_output)
+    Metrics_output_window_select[x][2]=mape(history_output,mlp_history_output)
+    Metrics_output_window_select[x][3]=mean_squared_error(forecast_output,mlp_forecast_output)
+    Metrics_output_window_select[x][4]=mean_absolute_error(forecast_output,mlp_forecast_output)
+    Metrics_output_window_select[x][5]=mape(forecast_output,mlp_forecast_output)
+    
+Metrics_output_window_select1=pd.DataFrame(data=Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
+Metrics_output_window_select1.to_csv('window_check.csv')
+
+
+## CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
+Metrics_output_neurons_select=np.zeros((20,6))
+window_size=4
+history_input,history_output=data_preparation(history,window_size)
+forecast_input,forecast_output=data_preparation(forecast,window_size)
+
+for x in range(1,10):
+    
+    #  Specify MLP regressor model
+    mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='identity',solver='lbfgs',random_state=1)
+    mlp.fit(history_input,history_output)
+    
+    # Predict the outputs
+    mlp_history_output=mlp.predict(history_input).reshape(-1,1)
+    mlp_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
+    
+    # Calculate the error metrics
+    Metrics_output_neurons_select[x][0]=mean_squared_error(history_output,mlp_history_output)
+    Metrics_output_neurons_select[x][1]=mean_absolute_error(history_output,mlp_history_output)
+    Metrics_output_neurons_select[x][2]=mape(history_output,mlp_history_output)
+    Metrics_output_neurons_select[x][3]=mean_squared_error(forecast_output,mlp_forecast_output)
+    Metrics_output_neurons_select[x][4]=mean_absolute_error(forecast_output,mlp_forecast_output)
+    Metrics_output_neurons_select[x][5]=mape(forecast_output,mlp_forecast_output)
+    
+Metrics_output_neurons_select1=pd.DataFrame(data=Metrics_output_neurons_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
+Metrics_output_neurons_select1.to_csv('neuron_check.csv')      
+'''
+
+## Training using the determined model parameters
 # Choice of window size for window based forecasting
 window_size=5
-History_input,History_output=data_preparation(History,window_size)
+history_input,history_output=data_preparation(history,window_size)
 
 #  Specify MLP regressor model
-mlp=MLPRegressor(hidden_layer_sizes=(7,),activation='identity',
-             solver='lbfgs',random_state=1)
+mlp=MLPRegressor(hidden_layer_sizes=(7,),activation='identity',solver='lbfgs',random_state=1)
 
 # LBFGS for small samples No batch size Learning rate for SGD
-mlp.fit(History_input,History_output)
-MLP_History_output=mlp.predict(History_input)
-
+mlp.fit(history_input,history_output)
+mlp_history_output=mlp.predict(history_input)
 
 # Weeks
-error_metrics=np.zeros((52,3))
-error_metrics[0][0]=(mean_squared_error(History_output,MLP_History_output))
-error_metrics[0][1]=(mean_absolute_error(History_output,MLP_History_output))
-error_metrics[0][2]=(mape(History_output,MLP_History_output))
+error_metrics1=np.zeros((4,3))
+error_metrics1[0][0]=(mean_squared_error(history_output,mlp_history_output))
+error_metrics1[0][1]=(mean_absolute_error(history_output,mlp_history_output))
+error_metrics1[0][2]=(mape(history_output,mlp_history_output))
 
-# History=pd.Series(np.ones((len(Week1),))) Input all ones
-dates=pd.date_range(start='2017-01-09',end='2017-12-31')
-B=[]
-Start_list=[0]
-y=0
-StartDate=pd.Series('2017-01-02')
-EndDate=pd.Series('2017-01-08')
-
-# Length and time to be forecasted
-forecast_start_date='2017-01-09' #str(dates[0].date())
-forecast_end_date='2017-01-31'
-Forecast=Annual[forecast_start_date:forecast_end_date].mw.copy # 2017-12-31
-Forecast['2017-01-10']=0
-no_of_dates=Forecast.size
-w=math.ceil(no_of_dates/(24*7)) # Instead of int use ceil func
-
-Lastwindow=[]
-retrain=0
-ADAM=1
-adam_forecast_output=np.zeros(Forecast.shape[0]).reshape(-1,1)
-threshold_violations=adam_forecast_output.copy()
-Act1=np.array([]) 
-MLP1=np.array([])
-window_index=0
-# Time stamp object to convert to date and then string str function
-for x in range(0,w,1):
-    StartIndex=str(dates[y].date())
-    EndIndex=str(dates[y+6].date())
-    y=y+7
-    
-    StartDate=StartDate.append(pd.Series(StartIndex),ignore_index=True)
-    EndDate=EndDate.append(pd.Series(EndIndex),ignore_index=True)
-#    # Pandas list to Series conversions
-#    if(x==0):
-#        Start_list=[StartIndex]
-#    else:
-#        Start_list.append(StartIndex)
-#
-#    StartDate=pd.Series(Start_list)
-#
-#    # Direct Series Object creation
-#    if(x==0):
-#        EndDate=pd.Series(EndIndex)
-#    else:
-#        EndDate=EndDate.append(pd.Series(EndIndex),ignore_index=True)
-
-    # Weekly Data
-    weekly_data=Forecast[StartIndex:EndIndex] # Annual change to Forecast
-    weekly_data.index=np.arange(0,len(weekly_data),1)
-    forecast_output_actual=weekly_data.values.copy()
-    if(x==0):
-        adam_forecast_output[0:window_size]=forecast_output_actual[0:window_size].reshape(-1,1).copy() 
-        forecast_output_actual=forecast_output_actual[window_size:]
-
-    mlp_forecast_weekly_actual=np.zeros(forecast_output_actual.shape[0])    
-    no_of_datapoints_in_week=forecast_output_actual.shape[0]
-    for i in range(0,no_of_datapoints_in_week,1):
-         previous_window=adam_forecast_output[window_index:window_index+window_size].reshape(-1,window_size)
-         mlp_forecast_weekly_actual[i]=mlp.predict(previous_window) 
-         if((lower_threshold < forecast_output_actual[i]) and (forecast_output_actual[i] < upper_threshold)):
-                 adam_forecast_output[window_index+window_size]=forecast_output_actual[i].copy()
-         else:
-                 adam_forecast_output[window_index+window_size]=mlp_forecast_weekly_actual[i].copy()
-                 threshold_violations[window_index+window_size]=1
-         window_index=window_index+1
-
-    '''
-     if(x==0):
-        rolling_forecast_window_input=forecast_output_actual
-        forecast_output_actual=forecast_output_actual[window_size:]
-        no_of_datapoints_in_week=forecast_output_actual.shape[0]
-    else:
-        rolling_forecast_window_input=np.concatenate([rolling_forecast_window_input,forecast_output_actual.reshape(-1,1)])  
-        no_of_datapoints_in_week=forecast_output_actual.shape[0]          
-    if(retrain==1):
-        history=Annual[StartDate[x]:EndDate[x]].mw
-        history.index=np.arange(0,len(history),1)
-        history_input,history_output=data_preparation(history,window_size)
-        mlp.fit(history_input,history_output)
-        
-    mlp_forecast_weekly_actual=np.zeros(forecast_output_actual.shape[0])
-    
-    for i in range(0,no_of_datapoints_in_week,1):  
-            previous_window=rolling_forecast_window_input[i:i+window_size].reshape(-1,window_size)
-            mlp_forecast_weekly_actual[i]=mlp.predict(previous_window) 
-            # mlp_forecast_weekly_actual_individual[i]=scaler_forecast.inverse_transform(mlp_forecast_weekly_norm[i]).reshape(1,-1)
-            if(ADAM==1):
-                if((lower_threshold < forecast_output_actual[i]) and (forecast_output_actual[i] < upper_threshold)):
-                    adam_forecast_output[i]=forecast_output_actual[i].copy()
-                else:
-                    adam_forecast_output[i]=mlp_forecast_weekly_actual[i].copy()
-                    rolling_forecast_window_input[i+window_size]= mlp_forecast_weekly_actual[i]
-    '''                
-    #rolling_forecast_window_input=forecast_output_actual[-window_size:].reshape(-1,1)   # change forecast_output_actual
-    
-    # Check both
-    # Calculate RMSE
-    error_metrics[x+1][0]=(mean_squared_error(forecast_output_actual,mlp_forecast_weekly_actual))
-
-    # calculate MAE
-    error_metrics[x+1][1]=(mean_absolute_error(forecast_output_actual,mlp_forecast_weekly_actual))
-    
-    # Calculate MAPE
-    error_metrics[x+1][2]=(mape(forecast_output_actual,mlp_forecast_weekly_actual))
-    B.append(mlp_forecast_weekly_actual)
-    
-    Act1=np.append(Act1,forecast_output_actual.reshape(-1,1))
-    MLP1=np.append(MLP1,mlp_forecast_weekly_actual.reshape(-1,1))
-
-    if(x==0): # USE CLASS DEFINITION
-        Actual_forecast1=forecast_output_actual.reshape(-1,1) # Alternate Actual_forecast=Forecast[-Window_Size:]
-        MLP_forecast=mlp_forecast_weekly_actual.reshape(-1,1)
-    else:
-        Actual_forecast1=np.concatenate([Actual_forecast1,forecast_output_actual.reshape(-1,1)])
-        MLP_forecast=np.concatenate([MLP_forecast,mlp_forecast_weekly_actual.reshape(-1,1)])
-
-Actual_forecast=Actual_forecast1[window_size:].reshape(-1,1)
-
-#filename='Annual1.xlsx'
-different_regression_metrics=pd.DataFrame(data=error_metrics,columns=['RMSE_Actual','MAE_Actual','MAPE'])
-different_regression_metrics['StartDate'],different_regression_metrics['EndDate']=[StartDate,EndDate] # different_regression_metrics['StartDate']=StartDate # different_regression_metrics['EndDate']=EndDate
-# different_regression_metrics.to_excel(filename,'Sheet1')
-
-# filename='Annual1.xlsx'
-complete_forecast_output=np.stack((Actual_forecast1,MLP_forecast),axis=1).reshape(-1,2)
-complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual','MLP'])
-#complete_forecast_data.to_excel(filename,'Sheet2')
-
-# plotting in matplotlib
 '''
-Scale_Xh=np.arange(1,len(History_output)+1,1)
+# Visualize the training
+Scale_Xh=np.arange(1,len(history_output)+1,1)
 fig=plt.figure()
-plt.plot(Scale_Xh,Actual_forecast,color='gray',label='Training load',linewidth=2,linestyle='-')
-plt.plot(Scale_Xh,MLP_History_output_inv,color='crimson',label='MLP Training Load',linewidth=2,linestyle='--')
+plt.plot(Scale_Xh,history_output,color='gray',label='Training load',linewidth=2,linestyle='-')
+plt.plot(Scale_Xh,mlp_history_output,color='crimson',label='MLP Training Load',linewidth=2,linestyle='--')
 plt.xlabel('Time(Hours)', fontsize=18)
 plt.ylabel('Load(MW)', fontsize=18)
 plt.title('Training Set')
 plt.legend()
 plt.show()
 '''
-# Testing dataset
-fig=plt.figure()
-Scale_Xh=np.arange(1,len(Actual_forecast1)+1,1)
-plt.plot(Scale_Xh,Actual_forecast1,color='gray',label='Actual load',marker="v")
-plt.plot(Scale_Xh,MLP_forecast,color='crimson',label='MLP Forecasted Load',marker="^") # linewidth=2,linestyle='--'
-plt.xlabel('Time(Hours)', fontsize=18)
-plt.ylabel('Load(MW)', fontsize=18)
-plt.title('Testing Set')
-plt.legend()
-plt.show()
+# history=pd.Series(np.ones((len(Week1),))) Input all ones
+## Forecasting
+dates=pd.date_range(start='2017-01-09',end='2017-12-31')
+B=[]
+y=0
+StartDate=pd.Series('2017-01-02')
+EndDate=pd.Series('2017-01-08')
+
+# Length and time to be forecasted
+forecast_start_date='2017-01-09' #str(dates[0].date())
+forecast_end_date='2017-01-15'
+forecast=Annual[forecast_start_date:forecast_end_date].mw.copy() # 2017-12-31
+#forecast['2017-01-10 00:00:00':'2017-01-10 16:00:00']=0 24:41
+forecast=forecast.values
+actual_forecast=forecast.copy()
+zero_start_index=24
+zero_end_index=41
+#forecast[zero_start_index:zero_end_index]=0
+#forecast.index=np.arange(0,len(forecast),1)
+window_index=0
+
+forecast_output_actual=forecast[window_size:].copy()
+mlp_forecast_actual=np.zeros(forecast_output_actual.shape[0]) 
+adam_forecast_output=np.zeros(forecast.shape[0]).reshape(-1,1)
+adam_forecast_output[0:window_size]=forecast[0:window_size].reshape(-1,1).copy() 
+threshold_violations=mlp_forecast_actual.copy()
+
+model_mlp=ModelPerformance(forecast_output_actual.shape[0])
+performance_window_size=3
+
+no_of_datapoints=forecast_output_actual.shape[0]
+
+for i in range(0,no_of_datapoints,1):
+     previous_window=adam_forecast_output[window_index:window_index+window_size].reshape(-1,window_size)
+     mlp_forecast_actual[i]=mlp.predict(previous_window) 
+     if((lower_threshold < forecast_output_actual[i]) and (forecast_output_actual[i] < upper_threshold)):
+             adam_forecast_output[window_index+window_size]=forecast_output_actual[i].copy()
+             model_mlp.rolling_window_error(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
+#             model_mlp.error_compute(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
+     else:
+             adam_forecast_output[window_index+window_size]=mlp_forecast_actual[i].copy()
+             threshold_violations[i]=1
+     window_index=window_index+1
+
+
+# Check on data frequency
+daily_datapoints=96 
+max_weekly_points=daily_datapoints*7
+dates=pd.date_range(start=forecast_start_date,end=forecast_end_date)
+no_of_dates=dates.shape[0]
+no_of_weeks=math.floor(no_of_dates/7) 
+
+# Writing outputs to Excel file
+#different_regression_metrics=pd.DataFrame(data=model_mlp.error_metrics,columns=['RMSE_Actual One datapoint', 'MAE_Actual','MAPE'])
+#filename='MLP_performance.xlsx'
+#writer=ExcelWriter(filename)
+#different_regression_metrics.to_excel(writer,'sheet1')
+#writer.save()
+
+
+# filename='Annual1.xlsx'
+#complete_forecast_output=np.stack((Actual_forecast1,MLP_forecast),axis=1).reshape(-1,2)
+#complete_forecast_data=pd.DataFrame(data=complete_forecast_output,columns=['Actual','MLP'])
+#complete_forecast_data.to_excel(filename,'Sheet2')
+
 
 # Testing dataset
-fig=plt.figure()
-Scale_Xh=np.arange(1,len(Forecast)+1,1)
-plt.plot(Scale_Xh,Forecast,color='gray',label='Actual load',marker="v")
-plt.plot(Scale_Xh,adam_forecast_output,color='crimson',label='ADAM Forecasted Load',marker="^") # linewidth=2,linestyle='--'
-plt.xlabel('Time(Hours)', fontsize=18)
-plt.ylabel('Load(MW)', fontsize=18)
-plt.title('Testing Set')
-plt.legend()
-plt.show()
+#fig=plt.figure()
+#Scale_Xh=np.arange(1,len(Actual_forecast1)+1,1)
+#plt.plot(Scale_Xh,Actual_forecast1,color='gray',label='Actual load',marker="v")
+#plt.plot(Scale_Xh,MLP_forecast,color='crimson',label='MLP Forecasted Load',marker="^")
+#plt.plot(Scale_Xh,forecast_with_zero_interval,color='blue',label='Actual Load without',marker="o") # linewidth=2,linestyle='--'
+#plt.xlabel('Time(Hours)', fontsize=18)
+#plt.ylabel('Load(MW)', fontsize=18)
+#plt.title('Testing Set')
+#plt.legend()
+#plt.show()
+
+## Complete forecast vector
+#fig=plt.figure()
+#Scale_Xh=np.arange(1,len(forecast)+1,1)
+#plt.plot(Scale_Xh,forecast,color='gray',label='Load with simulated zero values',marker="v")
+#plt.plot(Scale_Xh,adam_forecast_output,color='crimson',label='ADAM Forecasted Load',marker="^") # linewidth=2,linestyle='--'
+#plt.plot(Scale_Xh,actual_forecast,color='blue',label='Actual Load without zero values',marker="o")
+#plt.xlabel('Time(Hours)', fontsize=18)
+#plt.ylabel('Load(MW)', fontsize=18)
+#plt.title('Testing Set with 9 missing points')
+#plt.legend()
+#plt.show()
+#plt.savefig('Weekly Forecast 5')
+#
+## Values forecasted
+#fig=plt.figure()
+#Scale_Xh=np.arange(1,len(forecast_output_actual)+1,1)
+#plt.plot(Scale_Xh,forecast_output_actual,color='gray',label='Actual load to be forecasted',marker="v")
+#plt.plot(Scale_Xh,mlp_forecast_actual,color='crimson',label='MLP Forecasted Load',marker="^")
+#plt.xlabel('Time(Hours)', fontsize=18)
+#plt.ylabel('Load(MW)', fontsize=18)
+#plt.title('Testing Set with 9 missing points excluding window size')
+#plt.legend()
+#plt.show()
+#plt.savefig('Weekly Forecast 6')
+
+#
+## Error for the whole of forecast
+#index=np.arange(19,36,1)
+#original_forecast=forecast_output_actual
+#forecast_output_actual=np.delete(forecast_output_actual,index)
+#mlp_forecast_actual=np.delete(mlp_forecast_actual,index)
+#MSE_forecast=mean_squared_error(forecast_output_actual,mlp_forecast_actual)
+#MAE_forecast=mean_absolute_error(forecast_output_actual,mlp_forecast_actual)
+#MAPE_forecast=mape(forecast_output_actual,mlp_forecast_actual)
+
+# zero time interval error calculation
+mlp_forecast_zero_interval=adam_forecast_output[zero_start_index:zero_end_index]
+actual_val_zero_interval=actual_forecast[zero_start_index:zero_end_index]
+MSE_zero_time_instant=mean_squared_error(actual_val_zero_interval,mlp_forecast_zero_interval)
+MAE_zero_time_instant=mean_absolute_error(actual_val_zero_interval,mlp_forecast_zero_interval)
+MAPE_zero_time_instant=mape(actual_val_zero_interval,mlp_forecast_zero_interval)
