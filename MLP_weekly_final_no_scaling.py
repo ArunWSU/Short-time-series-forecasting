@@ -200,13 +200,17 @@ forecast=Annual[forecast_start_date:forecast_end_date].mw.copy() # 2017-12-31
 #forecast['2017-01-10 00:00:00':'2017-01-10 16:00:00']=0 24:41
 forecast=forecast.values
 actual_forecast=forecast.copy()
-zero_start_index=24
-zero_end_index=41
+#zero_start_index=24
+#zero_end_index=41
 #forecast[zero_start_index:zero_end_index]=0
 #forecast.index=np.arange(0,len(forecast),1)
 window_index=0
 
 forecast_output_actual=forecast[window_size:].copy()
+forecast_output_actual_unmodified=forecast_output_actual.copy()
+zero_start_index=19
+zero_end_index=36
+forecast_output_actual[zero_start_index:zero_end_index]=0
 mlp_forecast_actual=np.zeros(forecast_output_actual.shape[0]) 
 adam_forecast_output=np.zeros(forecast.shape[0]).reshape(-1,1)
 adam_forecast_output[0:window_size]=forecast[0:window_size].reshape(-1,1).copy() 
@@ -222,7 +226,8 @@ upper_threshold=annual_data_mean+3*annual_data_sd
 lower_threshold=annual_data_mean-3*annual_data_sd
 
 no_of_datapoints=forecast_output_actual.shape[0]
-gaus_obj=GaussianThresholds(annual_data,forecast_output_actual.shape[0]) 
+gaus_obj=GaussianThresholds(annual_data,forecast_output_actual.shape[0])
+overall_error_metrics=np.zeros((10,3)) 
 
 for i in range(0,no_of_datapoints,1):
      previous_window=adam_forecast_output[window_index:window_index+window_size].reshape(-1,window_size)
@@ -233,8 +238,31 @@ for i in range(0,no_of_datapoints,1):
              model_mlp_obj.rolling_window_error(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
 #             model_mlp_obj.error_compute(forecast_output_actual,mlp_forecast_actual,i,performance_window_size)
      else:
-         adam_forecast_output[window_index+window_size]=mlp_forecast_actual[i].copy()          
+         adam_forecast_output[window_index+window_size]=mlp_forecast_actual[i].copy()    
      window_index=window_index+1
+
+# zero time interval error calculation
+mlp_forecast_zero_interval=mlp_forecast_actual[zero_start_index:zero_end_index]  #adam_forecast_output[zero_start_index:zero_end_index]
+actual_val_zero_interval=forecast[zero_start_index+window_size:zero_end_index+window_size]
+actual_val_zero_interval1=forecast_output_actual_unmodified[zero_start_index:zero_end_index]
+MSE_zero_time_instant,MAE_zero_time_instant,MAPE_zero_time_instant=error_compute(actual_val_zero_interval,mlp_forecast_zero_interval)
+
+# Error for the whole of forecast
+index=np.arange(19,36,1)
+forecast_output_actual_no_zeros=np.delete(forecast_output_actual,index)
+mlp_forecast_actual_no_zeros=np.delete(mlp_forecast_actual,index)
+overall_error_metrics[3][0],overall_error_metrics[3][1],overall_error_metrics[3][2]=error_compute(forecast_output_actual_no_zeros,mlp_forecast_actual_no_zeros)
+
+# Simpler approach using mask
+zero_index=np.zeros((no_of_datapoints,1))
+zero_index[zero_start_index:zero_end_index]=1
+mask=(zero_index==1).reshape(-1)
+mlp_forecast_zero_interval_mask=mlp_forecast_actual[mask]
+actual_val_zero_interval_mask=forecast_output_actual_unmodified[mask]
+mlp_forecast_actual_no_zeros_mask=mlp_forecast_actual[~mask]
+forecast_output_actual_no_zeros_mask=forecast_output_actual_unmodified[~mask]
+MSE_zero_time_instant_mask,MAE_zero_time_instant_mask,MAPE_zero_time_instant_mask=error_compute(actual_val_zero_interval_mask,mlp_forecast_zero_interval_mask)
+overall_error_metrics[2][0],overall_error_metrics[2][1],overall_error_metrics[2][2]=error_compute(forecast_output_actual_no_zeros_mask,mlp_forecast_actual_no_zeros_mask)
 
 
 # Check on data frequency
@@ -288,26 +316,3 @@ no_of_weeks=math.floor(no_of_dates/7)
 #plt.legend()
 #plt.show()
 #plt.savefig('Weekly Forecast 6')
-
-#
-## Error for the whole of forecast
-#index=np.arange(19,36,1)
-# Weeks
-#complete_error_metrics=np.zeros((4,3))
-#complete_error_metrics[0][0]=(mean_squared_error(history_output,mlp_history_output))
-#complete_error_metrics[0][1]=(mean_absolute_error(history_output,mlp_history_output))
-#complete_error_metrics[0][2]=(mape(history_output,mlp_history_output))
-#if(case)
-#original_forecast=forecast_output_actual
-#forecast_output_actual=np.delete(forecast_output_actual,index)
-#mlp_forecast_actual=np.delete(mlp_forecast_actual,index)
-#MSE_forecast=mean_squared_error(forecast_output_actual,mlp_forecast_actual)
-#MAE_forecast=mean_absolute_error(forecast_output_actual,mlp_forecast_actual)
-#MAPE_forecast=mape(forecast_output_actual,mlp_forecast_actual)
-
-# zero time interval error calculation
-mlp_forecast_zero_interval=adam_forecast_output[zero_start_index:zero_end_index]
-actual_val_zero_interval=actual_forecast[zero_start_index:zero_end_index]
-MSE_zero_time_instant=mean_squared_error(actual_val_zero_interval,mlp_forecast_zero_interval)
-MAE_zero_time_instant=mean_absolute_error(actual_val_zero_interval,mlp_forecast_zero_interval)
-#MAPE_zero_time_instant=mape(actual_val_zero_interval,mlp_forecast_zero_interval)
