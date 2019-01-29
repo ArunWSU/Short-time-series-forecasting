@@ -77,7 +77,40 @@ class GaussianThresholds(AnomalyDetect):
       else:
           GaussianThresholds.threshold_violations[i]=1
     
-     
+ 
+def plot_results(plot_list,individual_plot_labels,fig_labels,mark_select,save_plot,save_plot_name):
+    no_datapoints=plot_list[0].size
+    no_line_plots=len(plot_list)
+    color_list=['crimson','gray','blue','green']
+    if(mark_select==1):
+        marker_list=["o","^","+","x",'*']
+        line_style=['-','--',':','-.']
+    else:
+        marker_list=['None']*no_line_plots
+        line_style=['--']*no_line_plots
+    try:
+        if(all(x.size==no_datapoints for x in plot_list)):
+                fig=plt.figure()
+                X_scale=np.arange(1,no_datapoints+1,1)
+                for i in range(no_line_plots):
+                     plt.plot(X_scale,plot_list[i],color=color_list[i],label=individual_plot_labels[i],linewidth=3,marker=marker_list[i],linestyle=line_style[i])
+#                plt.plot(X_scale,plot_list[0],color=color_list[0],label=line_plot_labels[0],marker="v")
+#                plt.plot(X_scale,plot_list[1],color=color_list[1],label=line_plot_labels[1],marker="^")
+#                plt.plot(X_scale,plot_list[2],color=color_list[2],label=line_plot_labels[2],marker="o")
+#                plt.plot(X_scale,Actual_forecast1,color='gray',label='Actual load',marker="v")
+#               plt.plot(Scale_Xh,MLP_forecast,color='crimson',label='MLP Forecasted Load',marker="^")
+#                plt.plot(Scale_Xh,forecast_with_zero_interval,color='blue',label='Actual Load without',marker="o") # linewidth=2,linestyle='--'
+                plt.title(fig_labels[0]) 
+                plt.xlabel(fig_labels[1], fontsize=18)
+                plt.ylabel(fig_labels[2], fontsize=18)
+                plt.legend()
+                plt.show()
+                if(save_plot==1):
+                    plt.savefig(save_plot_name)  
+        else:
+            raise Exception
+    except Exception:
+        print('Length mismatch among different vectors to plot')    
     
 # Reading and creating the history vector
 Annual=pd.read_csv("Annual_load_profile_PJM.csv",header=0,index_col=0,parse_dates=True)
@@ -206,6 +239,11 @@ actual_forecast=forecast.copy()
 #forecast.index=np.arange(0,len(forecast),1)
 window_index=0
 
+# 1. Normal 2.Retraining 3. Missing measurements, Singlepoint, Collective outliers 4. Effect of noise
+#use_case='missing_measurements'
+#if(use_case=='normal'):
+#elif(use_case=='missing_measurements'):
+#
 forecast_output_actual=forecast[window_size:].copy()
 forecast_output_actual_unmodified=forecast_output_actual.copy()
 zero_start_index=19
@@ -280,6 +318,16 @@ no_of_weeks=math.floor(no_of_dates/7)
 #writer.save()
 
 
+## Does Line plot if length of different input matches
+individual_plot_labels=['ActuaL_load','MLP Forecasted Load','Actual load without zeros']
+fig_labels=['Testing Set','Time(Hours)','Load(MW)']
+plot_list=[forecast_output_actual,mlp_forecast_actual,forecast_output_actual_unmodified]
+save_plot_name='Try 2'
+plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
+
+plot_list=[forecast_output_actual,mlp_forecast_actual]
+fig_labels[0]='Forecasting set'
+plot_results(plot_list,individual_plot_labels,fig_labels,0,0,save_plot_name)
 # Testing dataset
 #fig=plt.figure()
 #Scale_Xh=np.arange(1,len(Actual_forecast1)+1,1)
