@@ -17,56 +17,60 @@ from pandas import ExcelWriter
 from scipy.stats import norm
 import seaborn as sns
 
-
 # Fixing the random number for neural net
 np.random.seed(1)
 #%% FUNCTIONS AND CLASS DEFINITIONS
 # Creates the input and output data for time series forecasting
 # Model select 1.MLP 2. 0-LSTM
-def data_preparation(X,nlags,model_select):
-    X_t,Y_t=[],[]
-    # One for zero Index One for last point  #  if(i+nlags!=len(X))
-    for i in range(0,len(X)-window_size,1):
-            Row=X[i:i+nlags]
-            X_t.append(Row)
-            Y_t.append(X[i+nlags])
-    if(model_select==1):
-        return np.array(X_t).reshape(-1,window_size),np.array(Y_t).ravel()
-    else:
-        return np.array(X_t),np.array(Y_t)
-    
-def data_prep_feature(X,nlags,model_select,features):
-    X_t,Y_t=[],[]
-    # One for zero Index One for last point  #  if(i+nlags!=len(X))
-    for i in range(0,len(X)-window_size,1):
-            data_values=X[i:i+nlags]
-            current_features=features.iloc[i].values.reshape(-1,1)
-            mlp_input=np.vstack((data_values,current_features))
-            X_t.append(mlp_input)
-            Y_t.append(X[i+nlags])
-            
-    if(model_select==1):
-        return np.array(X_t).reshape(-1,mlp_input.shape[0]),np.array(Y_t).ravel()
-    else:
-        return np.array(X_t),np.array(Y_t)
-    
-# returns MSE,MAE, MAPE       
-def error_compute(X,Y):
-    np.seterr(divide='ignore')
-    return np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
 
-class ModelPerformance:
+class NeuralNetworkDetails:
+    actual_time_series=[]
+    data_input,data_output,model_forecast_output=[],[],[]
+    time_related_features=[]
+    window_size=[]
+    
+    def __init__(self,data,window_size):
+        self.actual_time_series=data
+        self.window_size=window_size
+        
+    def find_time_related_features(self):
+        self.time_related_features=pd.DataFrame(self.actual_time_series.index.dayofweek)
+        self.time_related_features['Working day']=np.logical_not(((self.time_related_features==5)|(self.time_related_features==6))).astype('int')
+        self.time_related_features['Hour']=pd.DataFrame(self.actual_time_series.index.hour)
+        self.time_related_features=self.time_related_features[self.window_size:]
+        self.time_related_features.reset_index(inplace=True)
+        self.time_related_features.rename(columns={'local_15min':'Day of week'},inplace=True)
+        
+    def prepare_neural_input_output(self,model_select):
+        self.time_series_values=self.actual_time_series.values
+        for i in range(0,len(self.time_series_values)-self.window_size,1):
+               last_lag_data=self.time_series_values[i:i+self.window_size]
+               self.data_input.append(last_lag_data)
+               self.data_output.append(self.time_series_values[i+self.window_size])# Y_t=history[5:]     
+        self.data_input=np.array(self.data_input)
+        self.data_output=np.array(self.data_output)
+        if(model_select==1):
+            self.data_input=self.data_input.reshape(-1,window_size)
+            self.data_output=self.data_output.ravel()
+    
+#class MLP():
+    
+
+class ModelPerformance():
     # To view the values used in error computation
     actual_list,forecast_list=[],[]
+    data_output,model_forecast_output=[],[]
     
-    def __init__(self,forecast_size):
-        ModelPerformance.error_metrics=np.zeros((forecast_size+3,3))
-    
+    def __init__(self,X,Y):
+        self.data_output=X
+        self.model_forecast_output=Y
+                                                                                                                                                                                                         
     def rolling_window_error(self,forecast_output_actual,mlp_forecast_actual,i,performance_window_size):
+        ModelPerformance.error_metrics=np.zeros((forecast_size+3,3))
         if(performance_window_size==1):
             self.actual_values=forecast_output_actual[i] 
             self.forecast_values=mlp_forecast_actual[i]
-            self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=error_compute(self.actual_values,self.forecast_values)
+            self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=self.error_compute(self.actual_values,self.forecast_values)
         else:
             end_index=i+1
             if(end_index>=performance_window_size):
@@ -74,7 +78,18 @@ class ModelPerformance:
              self.actual_list.append(self.actual_values)
              self.forecast_values=mlp_forecast_actual[end_index-performance_window_size:end_index] 
              self.forecast_list.append(self.forecast_values)
-             self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=error_compute(self.actual_values,self.forecast_values)
+             self.error_metrics[i][0],self.error_metrics[i][1],self.error_metrics[i][2]=self.error_compute(self.actual_values,self.forecast_values)
+    
+    # returns MSE,MAE, MAPE       
+    def error_compute(self):
+        X,Y=self.data_output,self.model_forecast_output
+        np.seterr(divide='ignore')
+        self.MSE,self.MAE,self.MAPE=np.mean(np.power(abs(np.array(X)-np.array(Y)),2)),np.mean(abs(np.array(X)-np.array(Y))),np.mean(abs(np.array(X)-np.array(Y))/np.array(X))*100
+
+    def point_accuracy_compute(self):
+        X,Y=self.data_output,self.model_forecast_output
+        Accurate_forecast_points=((((X > 1.5) & ((abs(X-Y)) < (X*0.10)))) | ((X < 1.5) & ((abs(X-Y)) < (0.10))))
+        self.model_accuracy=np.sum(Accurate_forecast_points)/Accurate_forecast_points.shape[0]
 
 class AnomalyDetect:
     select=1
@@ -183,15 +198,19 @@ def cd(newdir):
 #     Annual=pd.read_csv("3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
 #     Annual_complete=pd.read_csv("3967_data_2015_2018_all.csv",header=0,index_col=1,parse_dates=True)   
 #Annual=Annual_complete.furnace1
+
+#Specify MLP regressor model
+window_size=5
+model_select=1
 history_start_date='2017-01-02' 
 history_end_date='2017-01-08'
 #history_end_date='2017-10-08'
 history=Annual[history_start_date:history_end_date]
-Time_related_features_hist=pd.DataFrame(history.index.dayofweek)
-Time_related_features_hist['Working day']=np.logical_not(((Time_related_features_hist==5)|(Time_related_features_hist==6))).astype('int')
-Time_related_features_hist['Hour']=pd.DataFrame(history.index.hour)
-Time_related_features_hist.rename(columns={'local_15min':'Day of week'},inplace=True)
-history=history.values# Approximately 0.8=9.5 months # Long way history.index=np.arange(0,len(history),1) history=history.values.reshape(-1,1)
+hist_object=NeuralNetworkDetails(history,window_size)
+hist_object.find_time_related_features()
+hist_object.prepare_neural_input_output(model_select)
+history_input,hist_object.data_output=hist_object.data_input,hist_object.data_output
+history_values=history.values# Approximately 0.8=9.5 months # Long way history.index=np.arange(0,len(history),1) history=history.values.reshape(-1,1)
 transform=0
 if(transform==1):
     history_old=history.copy()
@@ -203,14 +222,14 @@ forecast_end_date='2017-01-15'
 #forecast_start_date='2017-10-09'
 #forecast_end_date='2017-10-15'
 forecast=Annual[forecast_start_date:forecast_end_date]
-Time_related_features_fore=pd.DataFrame(forecast.index.dayofweek)
-Time_related_features_fore['Working day']=np.logical_not(((Time_related_features_fore==5)|(Time_related_features_fore==6))).astype('int')
-Time_related_features_fore.rename(columns={'local_15min':'Day of week'},inplace=True)
+fore_object=NeuralNetworkDetails(forecast,window_size)
+fore_object.find_time_related_features()
+fore_object.prepare_neural_input_output(model_select)
+forecast_input,fore_object.data_output=fore_object.data_input,fore_object.data_output
 forecast=forecast.values.copy()
 if(transform==1):
     forecast_old=forecast.copy()
     forecast=np.log(forecast)
-model_select=1
 #%% MODEL SELECTION and forecast 
 '''
 ## CHOICE OF WINDOW SIZE FOR FORECASTING    
@@ -219,42 +238,42 @@ Metrics_output_window_select=np.zeros((20,6))
 for x in range(1,15):
     # Input to MLP is of form No of samples, No of features
     window_size=x
-    history_input,history_output=data_preparation(history,window_size,model_select)
-    forecast_input,forecast_output=data_preparation(forecast,window_size,model_select)
+    history_input,hist_object.data_output=data_preparation(history,window_size,model_select)
+    forecast_input,fore_object.data_output=data_preparation(forecast,window_size,model_select)
     
     #  Specify MLP regressor model
     mlp=MLPRegressor(hidden_layer_sizes=(9,),activation='identity',solver='lbfgs',random_state=1)
-    mlp.fit(history_input,history_output)
+    mlp.fit(history_input,hist_object.data_output)
     
     # Predict the outputs
-    mlp_history_output=mlp.predict(history_input).reshape(-1,1)
-    mlp_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
+    hist_object.model_forecast_output=mlp.predict(history_input).reshape(-1,1)
+    fore_object.model_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
     
     # Calculate the error metrics
-    Metrics_output_window_select[x][0],Metrics_output_window_select[x][1],Metrics_output_window_select[x][2]=error_compute(history_output,mlp_history_output)
-    Metrics_output_window_select[x][3],Metrics_output_window_select[x][4],Metrics_output_window_select[x][5]=error_compute(forecast_output,mlp_forecast_output)
+    Metrics_output_window_select[x][0],Metrics_output_window_select[x][1],Metrics_output_window_select[x][2]=error_compute(hist_object.data_output,hist_object.model_forecast_output)
+    Metrics_output_window_select[x][3],Metrics_output_window_select[x][4],Metrics_output_window_select[x][5]=error_compute(fore_object.data_output,fore_object.model_forecast_output)
    
 Metrics_output_window_select1=pd.DataFrame(data=Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
 Metrics_output_window_select1.to_excel('Window_check_pecan_31_Jan.xlsx')
 ## CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
 Metrics_output_neurons_select=np.zeros((20,6))
 window_size=4
-history_input,history_output=data_preparation(history,window_size,model_select)
-forecast_input,forecast_output=data_preparation(forecast,window_size,model_select)
+history_input,hist_object.data_output=data_preparation(history,window_size,model_select)
+forecast_input,fore_object.data_output=data_preparation(forecast,window_size,model_select)
 
 for x in range(1,10):
     
     #  Specify MLP regressor model
     mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='identity',solver='lbfgs',random_state=1)
-    mlp.fit(history_input,history_output)
+    mlp.fit(history_input,hist_object.data_output)
     
     # Predict the outputs
-    mlp_history_output=mlp.predict(history_input).reshape(-1,1)
-    mlp_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
+    hist_object.model_forecast_output=mlp.predict(history_input).reshape(-1,1)
+    fore_object.model_forecast_output=mlp.predict(forecast_input).reshape(-1,1)
     
     # Calculate the error metrics
-    Metrics_output_neurons_select[x][0],Metrics_output_neurons_select[x][1],Metrics_output_neurons_select[x][2]=error_compute(history_output,mlp_history_output)
-    Metrics_output_neurons_select[x][3],Metrics_output_neurons_select[x][4],Metrics_output_neurons_select[x][5]=error_compute(forecast_output,mlp_forecast_output)
+    Metrics_output_neurons_select[x][0],Metrics_output_neurons_select[x][1],Metrics_output_neurons_select[x][2]=error_compute(hist_object.data_output,hist_object.model_forecast_output)
+    Metrics_output_neurons_select[x][3],Metrics_output_neurons_select[x][4],Metrics_output_neurons_select[x][5]=error_compute(fore_object.data_output,fore_object.model_forecast_output)
     
 Metrics_output_neurons_select1=pd.DataFrame(data=Metrics_output_neurons_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
 Metrics_output_neurons_select1.to_csv('neuron_check.csv')     
@@ -283,18 +302,18 @@ mask_1=((abs(annual_data_series_diff)>upper_threshold)).astype(int)
 # Choice of window size for window based forecasting
 window_size=4 
 model_select=0
-history_input,history_output=data_preparation(history,window_size,model_select)
+history_input,hist_object.data_output=data_preparation(history,window_size,model_select)
 
 # Train LSTM model
 model=Sequential()
 model.add(LSTM(14,input_shape=(history_input.shape[1],history_input.shape[2])))
 model.add(Dense(1)) # First argument specifies the output
 model.compile(optimizer='adam',loss='mean_squared_error')
-model.fit(history_input,history_output,epochs=500,batch_size=1,verbose=2)
+model.fit(history_input,hist_object.data_output,epochs=500,batch_size=1,verbose=2)
 
 #Make predictions
 lstm_history_output=model.predict(history_input)
-forecast_input,forecast_output=data_preparation(history,window_size,model_select)
+forecast_input,fore_object.data_output=data_preparation(history,window_size,model_select)
 lstm_forecast_output=model.predict(forecast_input)
 
 # plot visualization
@@ -302,62 +321,71 @@ lstm_forecast_output=model.predict(forecast_input)
 individual_plot_labels=['Actual Jan 2','LSTM forecast']
 fig_labels=['Training Set','Time(Datapoint(15min))','Load(KW)']
 #plot_list=[annual_data_series[140:170]]
-plot_list=[history_output[0:97],lstm_history_output[0:97]]#97:193 history_output_old[0:97]
+plot_list=[hist_object.data_output[0:97],lstm_history_output[0:97]]#97:193 history_output_old[0:97]
 save_plot_name='Try 2'
 plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
-plot_list=[forecast_output[0:97],lstm_forecast_output[0:97]]
+plot_list=[fore_object.data_output[0:97],lstm_forecast_output[0:97]]
 individual_plot_labels[0]='Actual Jan 9'
 fig_labels[0]='Testing dataset'
 plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
-history_MSE,history_MAE,history_MAPE=error_compute(history_output,lstm_history_output)
-forecast_MSE,forecast_MAE,forecast_MAPE=error_compute(forecast_output,lstm_forecast_output)
+history_MSE,history_MAE,history_MAPE=error_compute(hist_object.data_output,lstm_history_output)
+forecast_MSE,forecast_MAE,forecast_MAPE=error_compute(fore_object.data_output,lstm_forecast_output)
 '''
 
 #  Specify MLP regressor model
 window_size=5
-history_input,history_output=data_preparation(history,window_size,model_select)
-#history_input,history_output=data_prep_feature(history,window_size,model_select,Time_related_features_hist)
+#history_input,hist_object.data_output=data_preparation(history,window_size,model_select)
+#history_input,hist_object.data_output=data_prep_feature(history,window_size,model_select,Time_related_features_hist)
 mlp=MLPRegressor(hidden_layer_sizes=(8,),activation='identity',solver='lbfgs',random_state=1)
 
 # LBFGS for small samples No batch size Learning rate for SGD
-mlp.fit(history_input,history_output)
-mlp_history_output=mlp.predict(history_input)
+mlp.fit(hist_object.data_input,hist_object.data_output)
+hist_object.model_forecast_output=mlp.predict(hist_object.data_input)
 if(transform==1):
-    history_output_old=history_output.copy()
-    history_output=np.exp(history_output)
-    mlp_history_output_old=mlp_history_output.copy()
-    mlp_history_output=np.exp(mlp_history_output)
-history_MSE,history_MAE,history_MAPE=error_compute(history_output,mlp_history_output)
-hist_absolute_error=abs(history_output-mlp_history_output)
-hist_APE=hist_absolute_error/history_output
-history_data_calc=np.hstack((history_output.reshape(-1,1),mlp_history_output.reshape(-1,1),hist_absolute_error.reshape(-1,1),hist_APE.reshape(-1,1)))
+    history_output_old=hist_object.data_output.copy()
+    hist_object.data_output=np.exp(hist_object.data_output)
+    mlp_history_output_old=hist_object.model_forecast_output.copy()
+    hist_object.model_forecast_output=np.exp(hist_object.model_forecast_output)
+#history_MSE,history_MAE,history_MAPE=error_compute(hist_object.data_output,hist_object.model_forecast_output)
+hist_absolute_error=abs(hist_object.data_output-hist_object.model_forecast_output)
+hist_APE=hist_absolute_error/hist_object.data_output
+history_data_calc=np.hstack((hist_object.data_output.reshape(-1,1),hist_object.model_forecast_output.reshape(-1,1),hist_absolute_error.reshape(-1,1),hist_APE.reshape(-1,1)))
 history_df=pd.DataFrame(data=history_data_calc,columns=['History','MLP_History','Abs_error','APE'])
+hist_perf_obj=ModelPerformance(hist_object.data_output,hist_object.model_forecast_output)
+hist_perf_obj.error_compute()
+hist_perf_obj.point_accuracy_compute()
+    
+    
 #df.to_excel('MAPE_check_relu.xlsx')
 
 # Test
-forecast_input,forecast_output=data_preparation(history,window_size,model_select)
-#forecast_input,forecast_output=data_prep_feature(history,window_size,model_select,Time_related_features_fore)
-mlp_forecast_output=mlp.predict(forecast_input)
+#forecast_input,fore_object.data_output=data_preparation(history,window_size,model_select)
+#forecast_input,fore_object.data_output=data_prep_feature(history,window_size,model_select,Time_related_features_fore)
+fore_object.model_forecast_output=mlp.predict(fore_object.data_input)
 if(transform==1):
-    forecast_output_old=forecast_output.copy()
-    forecast_output=np.exp(forecast_output)
-    mlp_forecast_output_old=mlp_forecast_output.copy()
-    mlp_forecast_output=np.exp(mlp_forecast_output)
-forecast_MSE,forecast_MAE,forecast_MAPE=error_compute(forecast_output,mlp_forecast_output)
-fore_absolute_error=abs(forecast_output-mlp_forecast_output)
-fore_APE=(fore_absolute_error/forecast_output)*100
-fore_data_calc=np.hstack((forecast_output.reshape(-1,1),mlp_forecast_output.reshape(-1,1),fore_absolute_error.reshape(-1,1),fore_APE.reshape(-1,1)))
+    forecast_output_old=fore_object.data_output.copy()
+    fore_object.data_output=np.exp(fore_object.data_output)
+    mlp_forecast_output_old=fore_object.model_forecast_output.copy()
+    fore_object.model_forecast_output=np.exp(fore_object.model_forecast_output)
+#forecast_MSE,forecast_MAE,forecast_MAPE=error_compute(fore_object.data_output,fore_object.model_forecast_output)
+fore_absolute_error=abs(fore_object.data_output-fore_object.model_forecast_output)
+fore_APE=(fore_absolute_error/fore_object.data_output)*100
+fore_data_calc=np.hstack((fore_object.data_output.reshape(-1,1),fore_object.model_forecast_output.reshape(-1,1),fore_absolute_error.reshape(-1,1),fore_APE.reshape(-1,1)))
 fore_df=pd.DataFrame(data=history_data_calc,columns=['Forecast','MLP_Forecast','Abs_error','APE'])
+fore_perf_obj=ModelPerformance(fore_object.data_output,fore_object.model_forecast_output)
+fore_perf_obj.error_compute()
+fore_perf_obj.point_accuracy_compute()
+
 
 # plot visualization
 #individual_plot_labels=['Training load','MLP Training Load','Actual load without zeros']
 individual_plot_labels=['Actual Jan 2','MLP forecast']
 fig_labels=['Training Set','Time(Datapoint(15min))','Load(KW)']
 #plot_list=[annual_data_series[140:170]]
-plot_list=[history_output[0:97],mlp_history_output[0:97]]#97:193 history_output_old[0:97]
+plot_list=[hist_object.data_output[0:97],hist_object.model_forecast_output[0:97]]#97:193 history_output_old[0:97]
 save_plot_name='Try 2'
 plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
-plot_list=[forecast_output[0:97],mlp_forecast_output[0:97]]
+plot_list=[fore_object.data_output[0:97],fore_object.model_forecast_output[0:97]]
 individual_plot_labels[0]='Actual Jan 9'
 fig_labels[0]='Testing dataset'
 plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
