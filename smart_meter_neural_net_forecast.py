@@ -19,19 +19,18 @@ import seaborn as sns
 
 # Fixing the random number for neural net
 np.random.seed(1)
-#%% FUNCTIONS AND CLASS DEFINITIONS
+# FUNCTIONS AND CLASS DEFINITIONS
 # Creates the input and output data for time series forecasting
-# Model select 1.MLP 2. 0-LSTM
+# Model select 1.MLP 2.LSTM
 
-class NeuralNetworkDetails:
-    actual_time_series=[]
-    model_forecast_output=[],[],[]
+class FeaturePreparation:
+    actual_time_series,time_series_values=[],[] # Available attributes of class
+    data_input,data_output,model_forecast_output=[],[],[]
     time_related_features=[]
     window_size=[]
     
-    def __init__(self,data,window_size):
+    def __init__(self,data):
         self.actual_time_series=data
-        self.window_size=window_size
         
     def find_time_related_features(self):
         self.time_related_features=pd.DataFrame(self.actual_time_series.index.dayofweek)
@@ -47,7 +46,7 @@ class NeuralNetworkDetails:
         for i in range(0,len(self.time_series_values)-self.window_size,1):
                last_lag_data=self.time_series_values[i:i+self.window_size]
                if(individual_paper_select==1):
-                   last_lag_data=np.vstack((last_lag_data,self.individual_meter_forecast_features(last_lag_data).reshape(-1,1)))
+                   last_lag_data=np.vstack((last_lag_data,self.individual_meter_forecast_features(last_lag_data).reshape(-1,1))) # Overloading might be possible variable args
                self.data_input.append(last_lag_data)
                self.data_output.append(self.time_series_values[i+self.window_size])# Y_t=history[5:]     
         self.data_input=np.array(self.data_input)
@@ -67,7 +66,73 @@ class NeuralNetworkDetails:
     def value_calculate(self,previous_3):
         return np.average(previous_3),np.amax(previous_3),np.amin(previous_3),np.ptp(previous_3)
     
-#class MLP():
+class MLPModelParameters(FeaturePreparation):
+    # CHOICE OF WINDOW SIZE FOR FORECASTING      
+    def __init__(self,data,window_size_max,neuron_number_max):
+        self.window_size_max=window_size_max
+        self.neuron_number_max=neuron_number_max
+        FeaturePreparation.__init__(self,data)
+         
+    def window_size_select(self,MLPModelParameters): # self is hist_obj, MLPModelParameters refers to the fore_obj
+          self.hist_inp_list,self.hist_out_list,self.fore_inp_list,self.fore_out_list=[0]*(self.window_size_max+3),[0]*(self.window_size_max+3),[0]*(self.window_size_max+3),[0]*(self.window_size_max+3)
+          self.Metrics_output_window_select=[]
+          
+          # Data as function of window sizes
+          for x in range(1,self.window_size_max):
+            # Input to MLP is of form No of samples, No of features
+            self.window_size,MLPModelParameters.window_size=x,x
+            self.prepare_neural_input_output(model_select,individual_paper_select)
+            self.hist_inp_list[x-1],self.hist_out_list[x-1]=self.data_input,self.data_output
+            MLPModelParameters.prepare_neural_input_output(model_select,individual_paper_select)
+            self.fore_inp_list[x-1],self.fore_out_list[x-1]=MLPModelParameters.data_input,MLPModelParameters.data_output
+            
+            mlp=MLPRegressor(hidden_layer_sizes=(9,),activation='logistic',solver='lbfgs',random_state=1)
+            self.mlp_fit_predict(mlp,MLPModelParameters,x)
+            self.Metrics_output_window_select.append(self.current_iter_error)
+          
+          self.Metrics_output_window_select1=pd.DataFrame(data=self.Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
+          self.Metrics_output_window_select1.to_excel('Window_check.xlsx') 
+            
+    # CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
+    def neuron_select(self,MLPModelParameters,window_size):
+        self.data_input,self.data_output=self.hist_inp_list[window_size-1],self.hist_out_list[window_size-1]
+        MLPModelParameters.data_input,MLPModelParameters.data_output=self.fore_inp_list[window_size-1],self.fore_out_list[window_size-1]
+       
+        self.Metrics_output_neuron_select=[]
+        for x in range(1,self.neuron_number_max):
+            mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='logistic',solver='lbfgs',random_state=1)
+            self.mlp_fit_predict(mlp,MLPModelParameters,x)
+            self.Metrics_output_neuron_select.append(self.current_iter_error)
+            
+        self.Metrics_output_neurons_select1=pd.DataFrame(data=self.Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
+        self.Metrics_output_neurons_select1.to_excel('Neuron_check.xlsx') 
+          
+    def mlp_fit_predict(self,mlp,MLPModelParameters,x):
+        mlp.fit(hist_object.data_input,hist_object.data_output)
+        
+        # Predict the outputs
+        self.model_forecast_output=mlp.predict(hist_object.data_input).reshape(-1,1)
+        MLPModelParameters.model_forecast_output=mlp.predict(fore_object.data_input).reshape(-1,1)
+        
+        hist_perf_obj=ModelPerformance(self.data_output,self.model_forecast_output)
+        fore_perf_obj=ModelPerformance(MLPModelParameters.data_output,MLPModelParameters.model_forecast_output)
+        
+        hist_perf_obj.error_compute()
+        fore_perf_obj.error_compute()
+        
+        self.current_iter_error=np.array((hist_perf_obj.MSE,hist_perf_obj.MAE,hist_perf_obj.MAPE,fore_perf_obj.MSE,fore_perf_obj.MAE,fore_perf_obj.MAPE))
+
+class LSTMModelParameters():
+    
+    def LSTM_model_param(LSTMModelParameters):
+        # Train LSTM model
+        model=Sequential()
+        model.add(LSTM(14,input_shape=(LSTMModelParameters.data_input.shape[1],LSTMModelParameters.data_input.shape[2])))
+        model.add(Dense(1)) # First argument specifies the output
+        model.compile(optimizer='adam',loss='mean_squared_error')
+        model.fit(LSTMModelParameters.data_input,LSTMModelParameters.data_output,epochs=500,batch_size=1,verbose=2)
+        
+        
 class ModelPerformance():
     # To view the values used in error computation
     actual_list,forecast_list=[],[]
@@ -212,18 +277,21 @@ def cd(newdir):
 #Annual=Annual_complete.furnace1
 
 #Specify MLP regressor model
-window_size=24
+window_size=5
 model_select=1
-individual_paper_select=1
+individual_paper_select=0
 history_start_date='2017-01-02' 
 history_end_date='2017-01-08'
 #history_end_date='2017-10-08'
 history=Annual[history_start_date:history_end_date]
-history=history.resample('H').asfreq()
-hist_object=NeuralNetworkDetails(history,window_size)
+#history=history.resample('H').asfreq()
+
+hist_object=MLPModelParameters(history) # use parameter
+hist_object.window_size=window_size
 hist_object.find_time_related_features()
 hist_object.prepare_neural_input_output(model_select,individual_paper_select)
-hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features['Day of week'].values.reshape(-1,1)))
+#hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features['Day of week'].values.reshape(-1,1)))
+#hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features.values))  
 history_values=history.values# Approximately 0.8=9.5 months # Long way history.index=np.arange(0,len(history),1) history=history.values.reshape(-1,1)
 transform=0
 if(transform==1):
@@ -236,11 +304,13 @@ forecast_end_date='2017-01-15'
 #forecast_start_date='2017-10-09'
 #forecast_end_date='2017-10-15'
 forecast=Annual[forecast_start_date:forecast_end_date]
-forecast=forecast.resample('H').asfreq()
-fore_object=NeuralNetworkDetails(forecast,window_size)
+#forecast=forecast.resample('H').asfreq()
+fore_object=MLPModelParameters(forecast)
+fore_object.window_size=window_size
 fore_object.find_time_related_features()
 fore_object.prepare_neural_input_output(model_select,individual_paper_select)
-fore_object.data_input=np.hstack((fore_object.data_input,fore_object.time_related_features['Day of week'].values.reshape(-1,1)))
+#fore_object.data_input=np.hstack((fore_object.data_input,fore_object.time_related_features['Day of week'].values.reshape(-1,1)))
+#fore_object.data_input=np.hstack((fore_object.data_input,fore_object.time_related_features.values))
 forecast=forecast.values.copy()
 if(transform==1):
     forecast_old=forecast.copy()
@@ -257,7 +327,7 @@ for x in range(1,15):
     fore_object.data_input,fore_object.data_output=data_preparation(forecast,window_size,model_select)
     
     #  Specify MLP regressor model
-    mlp=MLPRegressor(hidden_layer_sizes=(9,),activation='identity',solver='lbfgs',random_state=1)
+    mlp=MLPRegressor(hidden_layer_sizes=(9,),activation='logistic',solver='lbfgs',random_state=1)
     mlp.fit(hist_object.data_input,hist_object.data_output)
     
     # Predict the outputs
@@ -270,6 +340,7 @@ for x in range(1,15):
    
 Metrics_output_window_select1=pd.DataFrame(data=Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
 Metrics_output_window_select1.to_excel('Window_check_pecan_31_Jan.xlsx')
+
 ## CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
 Metrics_output_neurons_select=np.zeros((20,6))
 window_size=4
@@ -279,7 +350,7 @@ fore_object.data_input,fore_object.data_output=data_preparation(forecast,window_
 for x in range(1,10):
     
     #  Specify MLP regressor model
-    mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='identity',solver='lbfgs',random_state=1)
+    mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='logistic',solver='lbfgs',random_state=1)
     mlp.fit(hist_object.data_input,hist_object.data_output)
     
     # Predict the outputs
@@ -292,25 +363,6 @@ for x in range(1,10):
     
 Metrics_output_neurons_select1=pd.DataFrame(data=Metrics_output_neurons_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
 Metrics_output_neurons_select1.to_csv('neuron_check.csv')     
-'''
-'''      
-# history vector
-#Annual=pd.read_csv("3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
-year_list=['2015','2016','2017']
-deviation_error_metrics=np.zeros((5,4))
-for y in range(3):
-    annual_data=Annual[year_list[y]].use.values
-    annual_data_series=pd.Series(annual_data)
-    annual_data_series_diff=annual_data_series.diff(periods=1).dropna()
-    deviation_error_metrics[0][y],deviation_error_metrics[1][y]=norm_fit(annual_data_series_diff,0)
-    deviation_error_metrics[2][y],deviation_error_metrics[3][y] =min(annual_data_series_diff),max(annual_data_series_diff)
-    upper_threshold=0+3*0.82
-    lower_threshold=0-3*0.82
-
-mask=((annual_data_series_diff>lower_threshold)&(annual_data_series_diff<upper_threshold)).astype(int)
-outlier_index=mask[mask==0]
-outlier_index.to_excel('Flagged Outliers.xlsx')
-mask_1=((abs(annual_data_series_diff)>upper_threshold)).astype(int)
 '''
 '''
 # Train
@@ -349,7 +401,7 @@ forecast_MSE,forecast_MAE,forecast_MAPE=error_compute(fore_object.data_output,ls
 
 #hist_object.data_input,hist_object.data_output=data_preparation(history,window_size,model_select)
 #hist_object.data_input,hist_object.data_output=data_prep_feature(history,window_size,model_select,Time_related_features_hist)
-mlp=MLPRegressor(hidden_layer_sizes=(38,),activation='logistic',solver='lbfgs',random_state=1)
+mlp=MLPRegressor(hidden_layer_sizes=(10,),activation='logistic',solver='lbfgs',random_state=1)
 
 # LBFGS for small samples No batch size Learning rate for SGD
 mlp.fit(hist_object.data_input,hist_object.data_output)
@@ -403,8 +455,25 @@ individual_plot_labels[0]='Actual Jan 9'
 fig_labels[0]='Testing dataset'
 plot_results(plot_list,individual_plot_labels,fig_labels,1,0,save_plot_name)
 
+'''      
+# history vector
+#Annual=pd.read_csv("3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
+year_list=['2015','2016','2017']
+deviation_error_metrics=np.zeros((5,4))
+for y in range(3):
+    annual_data=Annual[year_list[y]].use.values
+    annual_data_series=pd.Series(annual_data)
+    annual_data_series_diff=annual_data_series.diff(periods=1).dropna()
+    deviation_error_metrics[0][y],deviation_error_metrics[1][y]=norm_fit(annual_data_series_diff,0)
+    deviation_error_metrics[2][y],deviation_error_metrics[3][y] =min(annual_data_series_diff),max(annual_data_series_diff)
+    upper_threshold=0+3*0.82
+    lower_threshold=0-3*0.82
 
-'''
+mask=((annual_data_series_diff>lower_threshold)&(annual_data_series_diff<upper_threshold)).astype(int)
+outlier_index=mask[mask==0]
+outlier_index.to_excel('Flagged Outliers.xlsx')
+mask_1=((abs(annual_data_series_diff)>upper_threshold)).astype(int)
+
 # 1. Normal 2.Retraining 3. Missing measurements, Singlepoint, Collective outliers 4. Effect of noise
 actual_forecast=forecast.copy()
 window_index=0
