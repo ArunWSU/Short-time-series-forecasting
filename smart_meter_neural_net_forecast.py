@@ -268,6 +268,19 @@ def cd(newdir):
         yield
     finally:
         os.chdir(prevdir)
+        
+def obj_create(annual_data,start_date,end_date,model_select,individual_paper_select,*var_args):
+    data=annual_data[start_date:end_date]
+    a=[var_args[i] for i in range(len(var_args))]
+    print(a)
+    print(a[1])
+    print(a[2])
+    if(model_select==1):
+        hist_object=MLPModelParameters(data,var_args[1],var_args[2]) # use parameter
+    hist_object.window_size=var_args[0]
+    hist_object.find_time_related_features()
+    hist_object.prepare_neural_input_output(model_select,individual_paper_select)  
+    return hist_object
 #%%
 # history vector    
 #with cd('C:/Users/WSU-PNNL/Desktop/Data-pec'):
@@ -275,16 +288,30 @@ def cd(newdir):
 #     Annual=pd.read_csv("3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
 #     Annual_complete=pd.read_csv("3967_data_2015_2018_all.csv",header=0,index_col=1,parse_dates=True)   
 #Annual=Annual_complete.furnace1
+#Annual=Annual.resample('H').asfreq()
 
 #Specify MLP regressor model
-window_size=5
+x=int(input("Enter 1. MLP 2. LSTM"))
 model_select=1
 individual_paper_select=0
-history_start_date='2017-01-02' 
+window_size_final=5
+transform=0
+
+variable_args=window_size_final
+if model_select==1:
+        window_size_max=int(input('Enter the maximum window size:'))
+        neuron_number_max=int(input('Enter the maximum number of neurons:'))
+        hist_object=obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
+        fore_object=obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
+else:
+    hist_object=obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final)
+    fore_object=obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final)
+'''
+history_start_date= 
 history_end_date='2017-01-08'
 #history_end_date='2017-10-08'
 history=Annual[history_start_date:history_end_date]
-#history=history.resample('H').asfreq()
+
 
 hist_object=MLPModelParameters(history) # use parameter
 hist_object.window_size=window_size
@@ -293,7 +320,6 @@ hist_object.prepare_neural_input_output(model_select,individual_paper_select)
 #hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features['Day of week'].values.reshape(-1,1)))
 #hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features.values))  
 history_values=history.values# Approximately 0.8=9.5 months # Long way history.index=np.arange(0,len(history),1) history=history.values.reshape(-1,1)
-transform=0
 if(transform==1):
     history_old=history.copy()
     history=np.log(history)
@@ -315,55 +341,9 @@ forecast=forecast.values.copy()
 if(transform==1):
     forecast_old=forecast.copy()
     forecast=np.log(forecast)
+'''
+
 #%% MODEL SELECTION and forecast 
-'''
-## CHOICE OF WINDOW SIZE FOR FORECASTING    
-Metrics_output_window_select=np.zeros((20,6))
-
-for x in range(1,15):
-    # Input to MLP is of form No of samples, No of features
-    window_size=x
-    hist_object.data_input,hist_object.data_output=data_preparation(history,window_size,model_select)
-    fore_object.data_input,fore_object.data_output=data_preparation(forecast,window_size,model_select)
-    
-    #  Specify MLP regressor model
-    mlp=MLPRegressor(hidden_layer_sizes=(9,),activation='logistic',solver='lbfgs',random_state=1)
-    mlp.fit(hist_object.data_input,hist_object.data_output)
-    
-    # Predict the outputs
-    hist_object.model_forecast_output=mlp.predict(hist_object.data_input).reshape(-1,1)
-    fore_object.model_forecast_output=mlp.predict(fore_object.data_input).reshape(-1,1)
-    
-    # Calculate the error metrics
-    Metrics_output_window_select[x][0],Metrics_output_window_select[x][1],Metrics_output_window_select[x][2]=error_compute(hist_object.data_output,hist_object.model_forecast_output)
-    Metrics_output_window_select[x][3],Metrics_output_window_select[x][4],Metrics_output_window_select[x][5]=error_compute(fore_object.data_output,fore_object.model_forecast_output)
-   
-Metrics_output_window_select1=pd.DataFrame(data=Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
-Metrics_output_window_select1.to_excel('Window_check_pecan_31_Jan.xlsx')
-
-## CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
-Metrics_output_neurons_select=np.zeros((20,6))
-window_size=4
-hist_object.data_input,hist_object.data_output=data_preparation(history,window_size,model_select)
-fore_object.data_input,fore_object.data_output=data_preparation(forecast,window_size,model_select)
-
-for x in range(1,10):
-    
-    #  Specify MLP regressor model
-    mlp=MLPRegressor(hidden_layer_sizes=(x,),activation='logistic',solver='lbfgs',random_state=1)
-    mlp.fit(hist_object.data_input,hist_object.data_output)
-    
-    # Predict the outputs
-    hist_object.model_forecast_output=mlp.predict(hist_object.data_input).reshape(-1,1)
-    fore_object.model_forecast_output=mlp.predict(fore_object.data_input).reshape(-1,1)
-    
-    # Calculate the error metrics
-    Metrics_output_neurons_select[x][0],Metrics_output_neurons_select[x][1],Metrics_output_neurons_select[x][2]=error_compute(hist_object.data_output,hist_object.model_forecast_output)
-    Metrics_output_neurons_select[x][3],Metrics_output_neurons_select[x][4],Metrics_output_neurons_select[x][5]=error_compute(fore_object.data_output,fore_object.model_forecast_output)
-    
-Metrics_output_neurons_select1=pd.DataFrame(data=Metrics_output_neurons_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
-Metrics_output_neurons_select1.to_csv('neuron_check.csv')     
-'''
 '''
 # Train
 # Choice of window size for window based forecasting
