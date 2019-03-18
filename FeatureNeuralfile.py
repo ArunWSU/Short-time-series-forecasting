@@ -19,10 +19,11 @@ class FeaturePreparation:
     window_size=[]
     neural_model=[]
     
-    def __init__(self,data,model_select,individual_paper_select):
+    def __init__(self,data,model_select,individual_paper_select,window_size_final):
         self.actual_time_series=data
         self.model_select=model_select
         self.individual_paper_select=individual_paper_select
+        self.window_size=window_size_final
         self.accuracy_select=0
     
     def prepare_neural_input_output(self):
@@ -77,10 +78,16 @@ class FeaturePreparation:
     
 class MLPModelParameters(FeaturePreparation):
     # CHOICE OF WINDOW SIZE FOR FORECASTING      
-    def __init__(self,data,model_select,individual_paper_select,window_size_max,neuron_number_max):
-        self.window_size_max=window_size_max
-        self.neuron_number_max=neuron_number_max
-        FeaturePreparation.__init__(self,data,model_select,individual_paper_select)
+    def __init__(self,data,model_select,individual_paper_select,window_size_final,*args):
+        args_len=len(args)
+        if(args_len==0):
+#            FeaturePreparation.__init__(self,data,model_select,individual_paper_select)
+            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final)
+        else:
+            self.window_size_max=args[0]
+            self.neuron_number_max=args[1]
+            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final)
+        
          
     def window_size_select(self,MLPModelParameters): # self is hist_obj, MLPModelParameters refers to the fore_obj
           self.hist_inp_list,self.hist_out_list,self.fore_inp_list,self.fore_out_list=[0]*(self.window_size_max+3),[0]*(self.window_size_max+3),[0]*(self.window_size_max+3),[0]*(self.window_size_max+3)
@@ -155,14 +162,13 @@ class LSTMModelParameters(FeaturePreparation):
         model.fit(LSTMModelParameters.data_input,LSTMModelParameters.data_output,epochs=5,batch_size=1,verbose=2)
         LSTMModelParameters.neural_model=model
 
-def obj_create(annual_data,start_date,end_date,model_select,individual_paper_select,*var_args):
+def obj_create(annual_data,start_date,end_date,model_select,individual_paper_select,window_size_final,*var_args):
     data=annual_data[start_date:end_date]
 #    a=[var_args[i] for i in range(len(var_args))]
     if(model_select==1):
-        hist_object=MLPModelParameters(data,model_select,individual_paper_select,var_args[1],var_args[2]) # use parameter
+        hist_object=MLPModelParameters(data,model_select,individual_paper_select,window_size_final,*var_args) # use parameter
     else:
-        hist_object=LSTMModelParameters(data,model_select,individual_paper_select)
-    hist_object.window_size=var_args[0]
+        hist_object=LSTMModelParameters(data,model_select,individual_paper_select,window_size_final)
     hist_object.find_time_related_features()
     hist_object.prepare_neural_input_output()  
     return hist_object

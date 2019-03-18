@@ -29,14 +29,20 @@ model_select=1
 individual_paper_select=0
 window_size_final=5
 transform=0
-
 variable_args=window_size_final
+mlp_model_parm=0
 if model_select==1:
-        window_size_max=int(input('Enter the maximum window size:'))
-        neuron_number_max=int(input('Enter the maximum number of neurons:'))
-        hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
+        if(mlp_model_parm==1):
+            window_size_max=int(input('Enter the maximum window size:'))
+            neuron_number_max=int(input('Enter the maximum number of neurons:'))
+            hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
+            fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max) 
+            hist_object.window_size_select(fore_object)
+            hist_object.neuron_select(fore_object,5)
+        else:
+            hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final)
+            fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final) 
         hist_object.neural_fit(10)
-        fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
 else:
     hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',0,0,5)
     hist_object.neural_fit()
@@ -48,10 +54,7 @@ else:
         
 #hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features.values))  
 #fore_object.data_input=np.hstack((fore_object.data_input,fore_object.time_related_features.values))
-        
 
-hist_object.window_size_select(fore_object)
-hist_object.neuron_select(fore_object,5)
 #hist_object.accuracy_select=1
 hist_object.neural_predict(fore_object)
 
