@@ -5,6 +5,7 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
 from ModelPerformancefile import ModelPerformance
+from sklearn.preprocessing import MinMaxScaler
 
 # Fixing the random number for neural net
 np.random.seed(1)
@@ -19,12 +20,29 @@ class FeaturePreparation:
     window_size=[]
     neural_model=[]
     
-    def __init__(self,data,model_select,individual_paper_select,window_size_final):
+    def __init__(self,data,model_select,individual_paper_select,window_size_final,scale_input):
+        self.scale_input=scale_input
         self.actual_time_series=data
+        if(self.scale_input==1):
+             self.scaler=MinMaxScaler(feature_range=(0,1))
+             self.time_series_values=self.scaler.fit_transform(self.actual_time_series.values.reshape(-1,1))
         self.model_select=model_select
         self.individual_paper_select=individual_paper_select
         self.window_size=window_size_final
         self.accuracy_select=0
+    '''
+    def data_normalize(self,min_val,max_val):
+        scaler1=MinMaxScaler(feature_range=(0,1))
+        scaler1.data_min_=min_val
+        scaler1.data_max_=max_val
+        self.scaler=scaler1
+        self.time_series_values=self.actual_time_series.data
+        self.time_series_values=scaler1.fit_transform(self.time_series_values)
+    '''
+    
+    def normalized_data_regenerate(self):
+        self.data_output=self.scaler.inverse_transform(self.data_output.reshape(-1,1))
+        self.model_forecast_output=self.scaler.inverse_transform(self.model_forecast_output.reshape(-1,1))
     
     def prepare_neural_input_output(self):
         self.time_series_values=self.actual_time_series.values
@@ -64,7 +82,10 @@ class FeaturePreparation:
         self.model_forecast_output=self.neural_model.predict(self.data_input)
         FeaturePrepration.neural_model=self.neural_model
         FeaturePrepration.model_forecast_output=FeaturePrepration.neural_model.predict(FeaturePrepration.data_input)
-        
+        if(self.scale_input==1):
+            self.normalized_data_regenerate()
+            FeaturePrepration.normalized_data_regenerate()
+            
         # Model Performance Computation
         self.hist_perf_obj=ModelPerformance(self.data_output.reshape(-1,1),self.model_forecast_output.reshape(-1,1))
         self.hist_perf_obj.error_compute()
@@ -78,15 +99,15 @@ class FeaturePreparation:
     
 class MLPModelParameters(FeaturePreparation):
     # CHOICE OF WINDOW SIZE FOR FORECASTING      
-    def __init__(self,data,model_select,individual_paper_select,window_size_final,*args):
+    def __init__(self,data,model_select,individual_paper_select,window_size_final,scale_input,*args):
         args_len=len(args)
         if(args_len==0):
 #            FeaturePreparation.__init__(self,data,model_select,individual_paper_select)
-            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final)
+            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final,scale_input)
         else:
             self.window_size_max=args[0]
             self.neuron_number_max=args[1]
-            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final)
+            super(MLPModelParameters,self).__init__(data,model_select,individual_paper_select,window_size_final,scale_input)
         
          
     def window_size_select(self,MLPModelParameters): # self is hist_obj, MLPModelParameters refers to the fore_obj
@@ -109,7 +130,7 @@ class MLPModelParameters(FeaturePreparation):
             self.Metrics_output_window_select.append(self.current_iter_error)
           
           self.Metrics_output_window_select1=pd.DataFrame(data=self.Metrics_output_window_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
-          self.Metrics_output_window_select1.to_excel('Window_check_class.xlsx') 
+          self.Metrics_output_window_select1.to_excel('Window_check_AMPD.xlsx') 
             
     # CHOICE OF NUMBER OF NEURONS FOR HIDDEN LAYER
     def neuron_select(self,MLPModelParameters,window_size):
@@ -125,7 +146,7 @@ class MLPModelParameters(FeaturePreparation):
             self.Metrics_output_neuron_select.append(self.current_iter_error)
             
         self.Metrics_output_neurons_select1=pd.DataFrame(data=self.Metrics_output_neuron_select,columns=['MSE_train','MAE_train','MAPE_train','MSE_test','MAE_test','MAPE_test'])
-        self.Metrics_output_neurons_select1.to_excel('Neuron_check_class.xlsx') 
+        self.Metrics_output_neurons_select1.to_excel('Neuron_check_AMPD.xlsx') 
     
     def neural_fit(self,number_of_neurons):
         mlp=MLPRegressor(hidden_layer_sizes=(number_of_neurons,),activation='logistic',solver='lbfgs',random_state=1)
@@ -162,13 +183,13 @@ class LSTMModelParameters(FeaturePreparation):
         model.fit(LSTMModelParameters.data_input,LSTMModelParameters.data_output,epochs=5,batch_size=1,verbose=2)
         LSTMModelParameters.neural_model=model
 
-def obj_create(annual_data,start_date,end_date,model_select,individual_paper_select,window_size_final,*var_args):
+def obj_create(annual_data,start_date,end_date,model_select,individual_paper_select,window_size_final,scale_input,*var_args):
     data=annual_data[start_date:end_date]
 #    a=[var_args[i] for i in range(len(var_args))]
     if(model_select==1):
-        hist_object=MLPModelParameters(data,model_select,individual_paper_select,window_size_final,*var_args) # use parameter
+        hist_object=MLPModelParameters(data,model_select,individual_paper_select,window_size_final,scale_input,*var_args) # use parameter
     else:
-        hist_object=LSTMModelParameters(data,model_select,individual_paper_select,window_size_final)
+        hist_object=LSTMModelParameters(data,model_select,individual_paper_select,scale_input,window_size_final)
     hist_object.find_time_related_features()
     hist_object.prepare_neural_input_output()  
     return hist_object

@@ -1,9 +1,10 @@
 #%% IMPORT FILES
-from contextlib import contextmanager
-import os
 import FeatureNeuralfile
 import Plotstorefile
 
+from contextlib import contextmanager
+import os
+import pandas as pd
 @contextmanager
 def cd(newdir):
     prevdir = os.getcwd()
@@ -17,36 +18,55 @@ def cd(newdir):
 #%%
 # history vector    
 #with cd('C:/Users/WSU-PNNL/Desktop/Data-pec'):
-#with cd('C:/Users/Arun Imayakumar/Desktop/Pecan street data'):
-#     Annual=pd.read_csv("3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
-#     Annual_complete=pd.read_csv("3967_data_2015_2018_all.csv",header=0,index_col=1,parse_dates=True)   
-#Annual=Annual_complete.furnace1
-#Annual=Annual.resample('H').asfreq()
-
+#Annual=pd.read_csv("C:/Users/WSU-PNNL/Desktop/Data-pec/3967_data_2015_2018.csv",header=0,index_col=0,parse_dates=True,usecols=['local_15min','use']) # Annual_data.idxmax() # Annual_data.idxmin()
+#Annual_complete=pd.read_csv("C:/Users/WSU-PNNL/Desktop/Data-pec/3967_data_2015_2018_all.csv",header=0,index_col=1,parse_dates=True)
+#Annual=pd.read_csv("C:/Users/WSU-PNNL/Desktop/Data-pec/Low freq REDD data/low_freq/house_1/channel_1.dat",delimiter='\s+',header=None,names=['mains power'],index_col=0) #0-11706 8895
+#Annual=pd.read_csv("C:/Users/WSU-PNNL/Desktop/Data-pec/Electricity_P.csv",header=0,index_col=0) # Annual_data.idxmax() # Annual_data.idxmin()
+#Annual=pd.read_csv("C:/Electricity_P.csv",header=0,index_col=0)
+#Annual_data_MHE=Annual['MHE']
+##Annual=Annual_complete.furnace1
+##Annual=Annual.resample('H').asfreq()
+#Annual.index=pd.to_datetime(Annual.index,unit='s')
+#Annual_data_15min=Annual.resample('0.25H').asfreq()
+#Annual_data_15min=Annual_data_15min.fillna(0)
 #Specify MLP regressor model
 #x=int(input("Enter 1. MLP 2. LSTM"))
+
+# AMPD dataset
+Annual=Annual_data_15min
+Annual=Annual/1000
+# AMPD dataset
+hist_start_date='2012-04-07'
+hist_end_date='2012-04-13'
+fore_start_date='2012-04-14'
+fore_end_date='2012-04-20'
+
+#hist_start_date='2017-01-02'
+#hist_end_date='2017-01-08'
+#fore_start_date='2017-01-09'
+#fore_end_date='2017-01-15'
 model_select=1
 individual_paper_select=0
 window_size_final=5
-transform=0
-variable_args=window_size_final
-mlp_model_parm=0
+mlp_parm_determination=1
+scale_input=0
+
 if model_select==1:
-        if(mlp_model_parm==1):
-            window_size_max=int(input('Enter the maximum window size:'))
-            neuron_number_max=int(input('Enter the maximum number of neurons:'))
-            hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max)
-            fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final,window_size_max,neuron_number_max) 
+        if(mlp_parm_determination==1):
+            window_size_max=40
+            neuron_number_max=40
+            hist_object=FeatureNeuralfile.obj_create(Annual,hist_start_date,hist_end_date,model_select,individual_paper_select,window_size_final,scale_input,window_size_max,neuron_number_max)
+            fore_object=FeatureNeuralfile.obj_create(Annual,fore_start_date,fore_end_date,model_select,individual_paper_select,window_size_final,scale_input,window_size_max,neuron_number_max) 
             hist_object.window_size_select(fore_object)
             hist_object.neuron_select(fore_object,5)
         else:
-            hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',model_select,individual_paper_select,window_size_final)
-            fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',model_select,individual_paper_select,window_size_final) 
-        hist_object.neural_fit(10)
+            hist_object=FeatureNeuralfile.obj_create(Annual,hist_start_date,hist_end_date,model_select,individual_paper_select,window_size_final,scale_input)
+            fore_object=FeatureNeuralfile.obj_create(Annual,fore_start_date,fore_end_date,model_select,individual_paper_select,window_size_final,scale_input) 
+            hist_object.neural_fit(7)
 else:
-    hist_object=FeatureNeuralfile.obj_create(Annual,'2017-01-02','2017-01-08',0,0,5)
+    hist_object=FeatureNeuralfile.obj_create(Annual,hist_start_date,hist_end_date,model_select,individual_paper_select,window_size_final,scale_input)
     hist_object.neural_fit()
-    fore_object=FeatureNeuralfile.obj_create(Annual,'2017-01-09','2017-01-15',0,0,5)
+    fore_object=FeatureNeuralfile.obj_create(Annual,fore_start_date,fore_end_date,model_select,individual_paper_select,window_size_final,scale_input)
     
 
 #hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features['Day of week'].values.reshape(-1,1)))
@@ -55,7 +75,7 @@ else:
 #hist_object.data_input=np.hstack((hist_object.data_input,hist_object.time_related_features.values))  
 #fore_object.data_input=np.hstack((fore_object.data_input,fore_object.time_related_features.values))
 
-#hist_object.accuracy_select=1
+hist_object.accuracy_select=1
 hist_object.neural_predict(fore_object)
 
 # plot visualization
